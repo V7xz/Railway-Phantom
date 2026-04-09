@@ -23,9 +23,9 @@ const client = new Client({
   ]
 });
 
-// ================= TRACKING SYSTEM =================
+// ================= TRACKING =================
 const activityMap = new Map();
-const orderData = new Map(); // NEW: full order tracking
+const orderData = new Map();
 
 // ================= SHOP =================
 const shopItems = [
@@ -43,7 +43,7 @@ const shopItems = [
   { name: "Valorant", price: 10, stock: 8 }
 ];
 
-// ================= PAYMENT (UNCHANGED) =================
+// ================= PAYMENT =================
 const PAYMENT = {
   qrisImage: "https://cdn.discordapp.com/attachments/1491728132661842061/1491880425923153991/Qris_gw.png",
   paypalEmail: "your-paypal@email.com",
@@ -62,23 +62,33 @@ const commands = [
   new SlashCommandBuilder().setName("dashboard").setDescription("Admin dashboard"),
   new SlashCommandBuilder().setName("claim").setDescription("Claim ticket"),
   new SlashCommandBuilder().setName("close").setDescription("Close ticket"),
-  new SlashCommandBuilder().setName("accept").setDescription("Accept payment (verify)")
+  new SlashCommandBuilder().setName("accept").setDescription("Verify payment")
 ];
 
+// ================= REGISTER COMMANDS (FIXED HERE) =================
 const rest = new REST({ version: "10" }).setToken(process.env.TOKEN);
 
 (async () => {
-  await rest.put(
-    Routes.applicationCommands(process.env.CLIENT_ID),
-    { body: commands }
-  );
+  try {
+    await rest.put(
+      Routes.applicationGuildCommands(
+        process.env.CLIENT_ID,
+        process.env.GUILD_ID
+      ),
+      { body: commands }
+    );
+
+    console.log("✅ Slash commands registered (GUILD MODE)");
+  } catch (err) {
+    console.error(err);
+  }
 })();
 
 // ================= READY =================
 client.once("clientReady", () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
 
-  // AUTO CLOSE SYSTEM (24h inactivity)
+  // AUTO CLOSE SYSTEM
   setInterval(async () => {
     const now = Date.now();
 
@@ -92,11 +102,6 @@ client.once("clientReady", () => {
           try {
             await ch.setName("auto-closed-inactive");
             await ch.send("⛔ Auto-closed due to inactivity.");
-
-            if (orderData.has(ch.id)) {
-              orderData.get(ch.id).status = "auto-closed";
-            }
-
             activityMap.delete(ch.id);
           } catch {}
         }
@@ -105,17 +110,17 @@ client.once("clientReady", () => {
   }, 3600000);
 });
 
-// ================= INTERACTION =================
+// ================= INTERACTIONS =================
 client.on("interactionCreate", async (interaction) => {
   try {
 
-    // ========== SLASH ==========
+    // ============ SLASH ============
     if (interaction.isChatInputCommand()) {
 
       // HELP
       if (interaction.commandName === "help") {
         const embed = new EmbedBuilder()
-          .setTitle("🛒 SHOP SYSTEM")
+          .setTitle("🛒 BOBA SHOP")
           .setColor("#2b2d31");
 
         const row = new ActionRowBuilder().addComponents(
@@ -143,65 +148,36 @@ client.on("interactionCreate", async (interaction) => {
         return interaction.reply({ embeds: [embed] });
       }
 
-      // ================= DASHBOARD (NEW UPGRADED) =================
+      // DASHBOARD
       if (interaction.commandName === "dashboard") {
         if (!isAdmin(interaction.member))
           return interaction.reply({ content: "❌ Admin only", flags: 64 });
 
-        const now = Date.now();
+        const orders = orderData.size;
 
-        const embeds = [];
-
-        for (const [channelId, data] of orderData.entries()) {
-          const ch = interaction.guild.channels.cache.get(channelId);
-          if (!ch) continue;
-
-          const elapsed = Math.floor((now - data.createdAt) / 1000);
-
-          embeds.push(
-            new EmbedBuilder()
-              .setTitle(`📦 Order: ${ch.name}`)
-              .addFields(
-                { name: "👤 User", value: `<@${data.userId}>`, inline: true },
-                { name: "💰 Status", value: data.status, inline: true },
-                { name: "⏱ Time", value: `${elapsed}s ago`, inline: true },
-                { name: "🆔 Channel", value: `${ch.id}`, inline: false },
-                { name: "💳 Payment", value: `PayPal: ${PAYMENT.paypalEmail}\nOther: ${PAYMENT.other}`, inline: false }
-              )
-              .setColor("Blue")
+        const embed = new EmbedBuilder()
+          .setTitle("📊 DASHBOARD")
+          .setColor("Blue")
+          .addFields(
+            { name: "📦 Orders", value: `${orders}`, inline: true }
           );
-        }
 
-        if (embeds.length === 0) {
-          embeds.push(
-            new EmbedBuilder()
-              .setTitle("📊 Dashboard")
-              .setDescription("No active orders")
-              .setColor("Blue")
-          );
-        }
-
-        return interaction.reply({ embeds, flags: 64 });
+        return interaction.reply({ embeds: [embed], flags: 64 });
       }
 
-      // ================= CLAIM =================
+      // CLAIM
       if (interaction.commandName === "claim") {
         await interaction.channel.setName(`claimed-${interaction.user.username}`);
         return interaction.reply({ content: "✅ Claimed", flags: 64 });
       }
 
-      // ================= CLOSE =================
+      // CLOSE
       if (interaction.commandName === "close") {
         await interaction.channel.setName(`closed-${interaction.user.username}`);
-
-        if (orderData.has(interaction.channel.id)) {
-          orderData.get(interaction.channel.id).status = "closed";
-        }
-
         return interaction.reply({ content: "❌ Closed", flags: 64 });
       }
 
-      // ================= ACCEPT PAYMENT =================
+      // ACCEPT PAYMENT
       if (interaction.commandName === "accept") {
         if (!isAdmin(interaction.member))
           return interaction.reply({ content: "❌ Admin only", flags: 64 });
@@ -212,11 +188,11 @@ client.on("interactionCreate", async (interaction) => {
           orderData.get(interaction.channel.id).status = "verified";
         }
 
-        return interaction.reply({ content: "✔ Payment VERIFIED", flags: 64 });
+        return interaction.reply({ content: "✔ Payment verified", flags: 64 });
       }
     }
 
-    // ========== BUTTONS ==========
+    // ============ BUTTONS ============
     if (interaction.isButton()) {
 
       activityMap.set(interaction.channel.id, Date.now());
@@ -251,6 +227,7 @@ client.on("interactionCreate", async (interaction) => {
         });
       }
 
+      // SUPPORT TICKET
       if (interaction.customId === "ticket_btn") {
         const ch = await interaction.guild.channels.create({
           name: `order-${interaction.user.username}`,
@@ -261,21 +238,19 @@ client.on("interactionCreate", async (interaction) => {
           ]
         });
 
-        const data = {
+        orderData.set(ch.id, {
           userId: interaction.user.id,
-          createdAt: Date.now(),
-          status: "pending"
-        };
+          status: "pending",
+          createdAt: Date.now()
+        });
 
-        orderData.set(ch.id, data);
         activityMap.set(ch.id, Date.now());
 
         const embed = new EmbedBuilder()
           .setTitle("💳 PAYMENT")
           .setDescription(
             `💳 PayPal: ${PAYMENT.paypalEmail}\n` +
-            `🏦 Other: ${PAYMENT.other}\n\n` +
-            `Upload proof then click Paid`
+            `🏦 Other: ${PAYMENT.other}`
           )
           .setImage(PAYMENT.qrisImage)
           .setColor("Yellow");
@@ -288,24 +263,9 @@ client.on("interactionCreate", async (interaction) => {
 
         return interaction.reply({ content: `Created ${ch}`, flags: 64 });
       }
-
-      if (interaction.customId === "paid_btn") {
-        await interaction.channel.setName(`pending-${interaction.user.username}`);
-
-        if (orderData.has(interaction.channel.id)) {
-          orderData.get(interaction.channel.id).status = "pending-verification";
-        }
-
-        const embed = EmbedBuilder.from(interaction.message.embeds[0])
-          .setFooter({ text: "Pending verification" });
-
-        await interaction.message.edit({ embeds: [embed] });
-
-        return interaction.reply({ content: "Sent for verification", flags: 64 });
-      }
     }
 
-    // ========== SELECT MENU ==========
+    // ============ SELECT ============
     if (interaction.isStringSelectMenu()) {
       if (interaction.customId === "select_item") {
 
@@ -320,13 +280,12 @@ client.on("interactionCreate", async (interaction) => {
           ]
         });
 
-        const data = {
+        orderData.set(ch.id, {
           userId: interaction.user.id,
-          createdAt: Date.now(),
-          status: "pending"
-        };
+          status: "pending",
+          createdAt: Date.now()
+        });
 
-        orderData.set(ch.id, data);
         activityMap.set(ch.id, Date.now());
 
         const embed = new EmbedBuilder()
@@ -352,19 +311,18 @@ client.on("interactionCreate", async (interaction) => {
   } catch (err) {
     console.error(err);
     if (!interaction.replied) {
-      interaction.reply({ content: "❌ Error occurred", flags: 64 });
+      interaction.reply({ content: "❌ Error", flags: 64 });
     }
   }
 });
 
-// ========== ACTIVITY TRACK ==========
+// ================= ACTIVITY =================
 client.on("messageCreate", (msg) => {
   if (msg.author.bot) return;
-
   if (msg.channel.name.startsWith("order-") || msg.channel.name.startsWith("support-")) {
     activityMap.set(msg.channel.id, Date.now());
   }
 });
 
-// ========== LOGIN ==========
+// ================= LOGIN =================
 client.login(process.env.TOKEN);
