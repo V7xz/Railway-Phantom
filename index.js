@@ -65,56 +65,31 @@ const commands = [
   new SlashCommandBuilder().setName("accept").setDescription("Verify payment")
 ];
 
-// ================= REGISTER COMMANDS (FIXED HERE) =================
 const rest = new REST({ version: "10" }).setToken(process.env.TOKEN);
 
+// ================= REGISTER (SAFE CLEAN MODE) =================
 (async () => {
-  try {
-    await rest.put(
-      Routes.applicationGuildCommands(
-        process.env.CLIENT_ID,
-        process.env.GUILD_ID
-      ),
-      { body: commands }
-    );
+  await rest.put(
+    Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID),
+    { body: [] }
+  );
 
-    console.log("✅ Slash commands registered (GUILD MODE)");
-  } catch (err) {
-    console.error(err);
-  }
+  await rest.put(
+    Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID),
+    { body: commands }
+  );
 })();
 
 // ================= READY =================
-client.once("clientReady", () => {
+client.once("ready", () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
-
-  // AUTO CLOSE SYSTEM
-  setInterval(async () => {
-    const now = Date.now();
-
-    for (const guild of client.guilds.cache.values()) {
-      for (const ch of guild.channels.cache.values()) {
-        if (!ch.name.startsWith("order-") && !ch.name.startsWith("support-")) continue;
-
-        const last = activityMap.get(ch.id) || now;
-
-        if (now - last > 86400000) {
-          try {
-            await ch.setName("auto-closed-inactive");
-            await ch.send("⛔ Auto-closed due to inactivity.");
-            activityMap.delete(ch.id);
-          } catch {}
-        }
-      }
-    }
-  }, 3600000);
 });
 
 // ================= INTERACTIONS =================
 client.on("interactionCreate", async (interaction) => {
   try {
 
-    // ============ SLASH ============
+    // ================= SLASH =================
     if (interaction.isChatInputCommand()) {
 
       // HELP
@@ -148,55 +123,73 @@ client.on("interactionCreate", async (interaction) => {
         return interaction.reply({ embeds: [embed] });
       }
 
-      // DASHBOARD
+      // DASHBOARD (FULL ORDER INFO)
       if (interaction.commandName === "dashboard") {
         if (!isAdmin(interaction.member))
           return interaction.reply({ content: "❌ Admin only", flags: 64 });
 
-        const orders = orderData.size;
-
         const embed = new EmbedBuilder()
-          .setTitle("📊 DASHBOARD")
-          .setColor("Blue")
-          .addFields(
-            { name: "📦 Orders", value: `${orders}`, inline: true }
-          );
+          .setTitle("📊 ORDER DASHBOARD")
+          .setColor("Blue");
+
+        for (const [channelId, data] of orderData.entries()) {
+          embed.addFields({
+            name: `Order | ${data.item}`,
+            value:
+              `👤 <@${data.userId}>\n` +
+              `📦 Item: ${data.item}\n` +
+              `⚙ Variant: ${data.variant}\n` +
+              `💰 Price: $${data.price}\n` +
+              `📌 Status: ${data.status}\n` +
+              `🆔 Channel: <#${channelId}>`,
+            inline: false
+          });
+        }
 
         return interaction.reply({ embeds: [embed], flags: 64 });
       }
 
-      // CLAIM
       if (interaction.commandName === "claim") {
         await interaction.channel.setName(`claimed-${interaction.user.username}`);
         return interaction.reply({ content: "✅ Claimed", flags: 64 });
       }
 
-      // CLOSE
       if (interaction.commandName === "close") {
         await interaction.channel.setName(`closed-${interaction.user.username}`);
         return interaction.reply({ content: "❌ Closed", flags: 64 });
       }
 
-      // ACCEPT PAYMENT
+      // ADMIN ACCEPT
       if (interaction.commandName === "accept") {
         if (!isAdmin(interaction.member))
           return interaction.reply({ content: "❌ Admin only", flags: 64 });
 
-        await interaction.channel.setName(`paid-${interaction.user.username}`);
+        const data = orderData.get(interaction.channel.id);
+        if (data) {
+          data.status = "approved";
 
-        if (orderData.has(interaction.channel.id)) {
-          orderData.get(interaction.channel.id).status = "verified";
+          // AUTO STOCK DECREASE
+          const item = shopItems.find(i => i.name === data.item);
+          if (item && typeof item.stock === "number") {
+            item.stock = Math.max(0, item.stock - 1);
+          }
         }
 
-        return interaction.reply({ content: "✔ Payment verified", flags: 64 });
+        await interaction.channel.setName(`paid-${interaction.user.username}`);
+
+        return interaction.reply({
+          content: "✔ Payment approved & stock updated",
+          flags: 64
+        });
       }
     }
 
-    // ============ BUTTONS ============
+    // ================= BUTTONS =================
     if (interaction.isButton()) {
 
       activityMap.set(interaction.channel.id, Date.now());
 
+      // OPEN SHOP
       if (interaction.customId === "open_shop") {
         const options = [];
 
@@ -227,10 +220,10 @@ client.on("interactionCreate", async (interaction) => {
         });
       }
 
-      // SUPPORT TICKET
+      // SUPPORT (IMPROVED PROMPT)
       if (interaction.customId === "ticket_btn") {
         const ch = await interaction.guild.channels.create({
-          name: `order-${interaction.user.username}`,
+          name: `support-${interaction.user.username}`,
           type: ChannelType.GuildText,
           permissionOverwrites: [
             { id: interaction.guild.id, deny: [PermissionsBitField.Flags.ViewChannel] },
@@ -238,34 +231,57 @@ client.on("interactionCreate", async (interaction) => {
           ]
         });
 
-        orderData.set(ch.id, {
-          userId: interaction.user.id,
-          status: "pending",
-          createdAt: Date.now()
-        });
-
-        activityMap.set(ch.id, Date.now());
-
         const embed = new EmbedBuilder()
-          .setTitle("💳 PAYMENT")
-          .setDescription(
-            `💳 PayPal: ${PAYMENT.paypalEmail}\n` +
-            `🏦 Other: ${PAYMENT.other}`
-          )
-          .setImage(PAYMENT.qrisImage)
-          .setColor("Yellow");
+          .setTitle("🎫 SUPPORT OPENED")
+          .setDescription("Please describe your issue. Staff will respond shortly.")
+          .setColor("Blue");
 
-        const row = new ActionRowBuilder().addComponents(
-          new ButtonBuilder().setCustomId("paid_btn").setLabel("✔ Paid").setStyle(ButtonStyle.Success)
-        );
+        await ch.send({ content: `${interaction.user}`, embeds: [embed] });
 
-        await ch.send({ content: `${interaction.user}`, embeds: [embed], components: [row] });
+        return interaction.reply({ content: `✅ Support created: ${ch}`, flags: 64 });
+      }
 
-        return interaction.reply({ content: `Created ${ch}`, flags: 64 });
+      // PAID BUTTON → WAIT ADMIN APPROVAL
+      if (interaction.customId === "paid_btn") {
+        await interaction.deferUpdate();
+
+        const data = orderData.get(interaction.channel.id);
+        if (data) data.status = "waiting_admin";
+
+        await interaction.channel.send("💸 Marked as PAID. Waiting for admin approval.");
+      }
+
+      // ADMIN APPROVE BUTTON
+      if (interaction.customId === "approve_order") {
+        if (!isAdmin(interaction.member)) return;
+
+        const data = orderData.get(interaction.channel.id);
+        if (data) {
+          data.status = "approved";
+
+          const item = shopItems.find(i => i.name === data.item);
+          if (item && typeof item.stock === "number") {
+            item.stock = Math.max(0, item.stock - 1);
+          }
+        }
+
+        await interaction.channel.setName(`approved-${interaction.user.username}`);
+        await interaction.reply({ content: "✅ Order Approved", flags: 64 });
+      }
+
+      // ADMIN REJECT BUTTON
+      if (interaction.customId === "reject_order") {
+        if (!isAdmin(interaction.member)) return;
+
+        const data = orderData.get(interaction.channel.id);
+        if (data) data.status = "rejected";
+
+        await interaction.channel.setName(`rejected-${interaction.user.username}`);
+        await interaction.reply({ content: "❌ Order Rejected", flags: 64 });
       }
     }
 
-    // ============ SELECT ============
+    // ================= SELECT =================
     if (interaction.isStringSelectMenu()) {
       if (interaction.customId === "select_item") {
 
@@ -282,27 +298,26 @@ client.on("interactionCreate", async (interaction) => {
 
         orderData.set(ch.id, {
           userId: interaction.user.id,
+          item: name,
+          variant,
+          price,
           status: "pending",
           createdAt: Date.now()
         });
 
-        activityMap.set(ch.id, Date.now());
-
         const embed = new EmbedBuilder()
           .setTitle("💳 PAYMENT")
-          .setDescription(
-            `📦 ${name} (${variant})\n💰 $${price}\n\n` +
-            `💳 PayPal: ${PAYMENT.paypalEmail}\n` +
-            `🏦 Other: ${PAYMENT.other}`
-          )
-          .setImage(PAYMENT.qrisImage)
+          .setDescription(`📦 ${name} (${variant})\n💰 $${price}`)
           .setColor("Yellow");
 
         const row = new ActionRowBuilder().addComponents(
-          new ButtonBuilder().setCustomId("paid_btn").setLabel("✔ Paid").setStyle(ButtonStyle.Success)
+          new ButtonBuilder()
+            .setCustomId("paid_btn")
+            .setLabel("✔ Paid")
+            .setStyle(ButtonStyle.Success)
         );
 
-        await ch.send({ embeds: [embed], components: [row] });
+        await ch.send({ content: `${interaction.user}`, embeds: [embed], components: [row] });
 
         return interaction.reply({ content: `Created ${ch}`, flags: 64 });
       }
