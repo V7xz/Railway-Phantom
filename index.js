@@ -23,6 +23,9 @@ const client = new Client({
   ]
 });
 
+// ===== TRACKING SYSTEM (NEW) =====
+const ticketActivity = new Map();
+
 // ===== SHOP DATA =====
 const shopItems = [
   {
@@ -45,10 +48,18 @@ const PAYMENT = {
   paypalEmail: "your-paypal@email.com"
 };
 
+function isAdmin(member) {
+  return member.permissions.has(PermissionsBitField.Flags.Administrator) ||
+         member.permissions.has(PermissionsBitField.Flags.ManageChannels);
+}
+
 // ===== COMMANDS =====
 const commands = [
   new SlashCommandBuilder().setName("help").setDescription("Open shop UI"),
-  new SlashCommandBuilder().setName("stock").setDescription("View stock")
+  new SlashCommandBuilder().setName("stock").setDescription("View stock"),
+  new SlashCommandBuilder().setName("claim").setDescription("Claim ticket"),
+  new SlashCommandBuilder().setName("close").setDescription("Close ticket"),
+  new SlashCommandBuilder().setName("dashboard").setDescription("Admin panel")
 ];
 
 const rest = new REST({ version: "10" }).setToken(process.env.TOKEN);
@@ -61,11 +72,36 @@ const rest = new REST({ version: "10" }).setToken(process.env.TOKEN);
 })();
 
 // ===== READY =====
-client.once("clientReady", () => {
+client.once("ready", () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
+
+  // ===== AUTO CLOSE CHECK (NEW) =====
+  setInterval(async () => {
+    const now = Date.now();
+
+    client.guilds.cache.forEach(async (guild) => {
+      guild.channels.cache.forEach(async (ch) => {
+        if (!ch.name.startsWith("order-") && !ch.name.startsWith("support-")) return;
+
+        const last = ticketActivity.get(ch.id) || now;
+        const diff = now - last;
+
+        // 24 hours = 86400000ms
+        if (diff > 86400000) {
+          try {
+            await ch.setName(`auto-closed-inactive`);
+
+            await ch.send("⛔ Auto-closed due to 24h inactivity.");
+
+            ticketActivity.delete(ch.id);
+          } catch (e) {}
+        }
+      });
+    });
+  }, 60 * 60 * 1000); // every 1 hour
 });
 
-// ===== INTERACTIONS =====
+// ===== INTERACTION =====
 client.on("interactionCreate", async (interaction) => {
 
   // ===== SLASH =====
@@ -74,7 +110,7 @@ client.on("interactionCreate", async (interaction) => {
     if (interaction.commandName === "help") {
       const embed = new EmbedBuilder()
         .setTitle("🛒 BOBA STORE")
-        .setDescription("Click below to shop or get support")
+        .setDescription("Click below to shop or support")
         .setColor("#2b2d31");
 
       const row = new ActionRowBuilder().addComponents(
@@ -86,9 +122,7 @@ client.on("interactionCreate", async (interaction) => {
     }
 
     if (interaction.commandName === "stock") {
-      const embed = new EmbedBuilder()
-        .setTitle("📦 Stock")
-        .setColor("#2b2d31");
+      const embed = new EmbedBuilder().setTitle("📦 Stock").setColor("#2b2d31");
 
       shopItems.forEach(item => {
         embed.addFields({
@@ -102,160 +136,173 @@ client.on("interactionCreate", async (interaction) => {
 
       return interaction.reply({ embeds: [embed] });
     }
+
+    // ===== DASHBOARD (NEW ADMIN PANEL) =====
+    if (interaction.commandName === "dashboard") {
+      if (!isAdmin(interaction.member))
+        return interaction.reply({ content: "❌ Admin only", ephemeral: true });
+
+      const guild = interaction.guild;
+
+      const orders = guild.channels.cache.filter(c => c.name.startsWith("order-")).size;
+      const tickets = guild.channels.cache.filter(c => c.name.startsWith("support-")).size;
+      const closed = guild.channels.cache.filter(c => c.name.includes("closed") || c.name.includes("auto-closed")).size;
+
+      const embed = new EmbedBuilder()
+        .setTitle("📊 ADMIN DASHBOARD")
+        .addFields(
+          { name: "🧾 Orders", value: `${orders}`, inline: true },
+          { name: "🎫 Tickets", value: `${tickets}`, inline: true },
+          { name: "⛔ Closed", value: `${closed}`, inline: true }
+        )
+        .setColor("Blue");
+
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId("refresh_dashboard")
+          .setLabel("🔄 Refresh")
+          .setStyle(ButtonStyle.Primary)
+      );
+
+      return interaction.reply({ embeds: [embed], components: [row], ephemeral: true });
+    }
+
+    // ADMIN CLAIM
+    if (interaction.commandName === "claim") {
+      if (!isAdmin(interaction.member))
+        return interaction.reply({ content: "❌ Admin only", ephemeral: true });
+
+      await interaction.channel.setName(`claimed-by-${interaction.user.username}`);
+      return interaction.reply({ content: `✅ Claimed`, ephemeral: true });
+    }
+
+    // CLOSE
+    if (interaction.commandName === "close") {
+      await interaction.channel.setName(`closed-by-${interaction.user.username}`);
+      return interaction.reply({ content: `❌ Closed`, ephemeral: true });
+    }
   }
 
   // ===== BUTTONS =====
   if (interaction.isButton()) {
 
-    // OPEN SHOP
-    if (interaction.customId === "open_shop") {
-      const options = [];
-
-      shopItems.forEach(item => {
-        if (item.variants) {
-          item.variants.forEach(v => {
-            options.push({
-              label: `${item.name} (${v.label})`,
-              value: `${item.name}|${v.label}|${v.price}`
-            });
-          });
-        } else {
-          options.push({
-            label: item.name,
-            value: `${item.name}|default|${item.price}`
-          });
-        }
-      });
-
-      const menu = new StringSelectMenuBuilder()
-        .setCustomId("select_item")
-        .setPlaceholder("Select product")
-        .addOptions(options);
-
-      return interaction.reply({
-        components: [new ActionRowBuilder().addComponents(menu)],
-        ephemeral: true
-      });
+    // DASHBOARD REFRESH
+    if (interaction.customId === "refresh_dashboard") {
+      return interaction.deferUpdate().then(() => interaction.message.reactions?.removeAll?.());
     }
 
-    // SUPPORT TICKET
     if (interaction.customId === "ticket_btn") {
-      const category = interaction.guild.channels.cache.find(
-        c => c.name === "tickets" && c.type === ChannelType.GuildCategory
-      );
-
       const channel = await interaction.guild.channels.create({
         name: `support-${interaction.user.username}`,
         type: ChannelType.GuildText,
-        parent: category?.id,
         permissionOverwrites: [
           { id: interaction.guild.id, deny: [PermissionsBitField.Flags.ViewChannel] },
           { id: interaction.user.id, allow: [PermissionsBitField.Flags.ViewChannel] }
         ]
       });
 
+      ticketActivity.set(channel.id, Date.now());
+
       const buttons = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId("claim_ticket").setLabel("🔒 Claim").setStyle(ButtonStyle.Primary),
         new ButtonBuilder().setCustomId("close_ticket").setLabel("❌ Close").setStyle(ButtonStyle.Danger)
       );
 
-      await channel.send({
-        content: `👋 Hello ${interaction.user}, can I help you?\n\n⚠️ Don't spam please.\n🕐 Your ticket will be handled shortly.`,
-        components: [buttons]
-      });
+      await channel.send({ content: `${interaction.user}`, components: [buttons] });
 
-      return interaction.reply({ content: `✅ Created: ${channel}`, ephemeral: true });
+      return interaction.reply({ content: `Created ${channel}`, ephemeral: true });
     }
 
-    // CLAIM
+    // TRACK ACTIVITY (NEW SAFE HOOK)
+    ticketActivity.set(interaction.channel.id, Date.now());
+
     if (interaction.customId === "claim_ticket") {
+      if (!isAdmin(interaction.member))
+        return interaction.reply({ content: "❌ Admin only", ephemeral: true });
+
       await interaction.channel.setName(`claimed-by-${interaction.user.username}`);
-      return interaction.reply({ content: `✅ Claimed by ${interaction.user}`, ephemeral: true });
+      return interaction.reply({ content: "✅ Claimed", ephemeral: true });
     }
 
-    // CLOSE
     if (interaction.customId === "close_ticket") {
       await interaction.channel.setName(`closed-by-${interaction.user.username}`);
-      return interaction.reply({ content: `❌ Closed by ${interaction.user}`, ephemeral: true });
+      return interaction.reply({ content: "❌ Closed", ephemeral: true });
+    }
+
+    if (interaction.customId === "paid_btn") {
+      await interaction.channel.setName(`pending-verification-${interaction.user.username}`);
+
+      const verify = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId("verify_payment")
+          .setLabel("✔ Verify")
+          .setStyle(ButtonStyle.Success)
+      );
+
+      const embed = EmbedBuilder.from(interaction.message.embeds[0])
+        .setFooter({ text: "⏳ Pending verification" });
+
+      await interaction.message.edit({ embeds: [embed], components: [verify] });
+
+      return interaction.reply({ content: "Sent for verification", ephemeral: true });
+    }
+
+    if (interaction.customId === "verify_payment") {
+      if (!isAdmin(interaction.member))
+        return interaction.reply({ content: "❌ Admin only", ephemeral: true });
+
+      await interaction.channel.setName(`paid-by-${interaction.user.username}`);
+
+      const embed = EmbedBuilder.from(interaction.message.embeds[0])
+        .setFooter({ text: "✔ Verified" });
+
+      await interaction.message.edit({ embeds: [embed], components: [] });
+
+      return interaction.reply({ content: "✔ Verified", ephemeral: true });
     }
   }
 
-  // ===== SELECT MENU (BUY) =====
+  // ===== SELECT =====
   if (interaction.isStringSelectMenu()) {
     if (interaction.customId === "select_item") {
 
       const [name, variant, price] = interaction.values[0].split("|");
 
-      const category = interaction.guild.channels.cache.find(
-        c => c.name === "tickets" && c.type === ChannelType.GuildCategory
-      );
-
       const channel = await interaction.guild.channels.create({
         name: `order-${interaction.user.username}`,
         type: ChannelType.GuildText,
-        parent: category?.id,
         permissionOverwrites: [
           { id: interaction.guild.id, deny: [PermissionsBitField.Flags.ViewChannel] },
           { id: interaction.user.id, allow: [PermissionsBitField.Flags.ViewChannel] }
         ]
       });
 
+      ticketActivity.set(channel.id, Date.now());
+
       const embed = new EmbedBuilder()
         .setTitle("💳 Payment")
-        .setDescription(
-          `👤 ${interaction.user}\n\n` +
-          `📦 ${name} (${variant})\n` +
-          `💰 $${price}\n\n` +
-          `Pay via QRIS / PayPal\n${PAYMENT.paypalEmail}\n\n` +
-          `📸 Upload payment proof here`
-        )
-        .setImage(PAYMENT.qrisImage)
+        .setDescription(`📦 ${name} (${variant})\n💰 $${price}`)
         .setColor("Yellow");
 
       const buttons = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId("claim_ticket").setLabel("🔒 Claim").setStyle(ButtonStyle.Primary),
-        new ButtonBuilder().setCustomId("close_ticket").setLabel("❌ Close").setStyle(ButtonStyle.Danger)
+        new ButtonBuilder().setCustomId("close_ticket").setLabel("❌ Close").setStyle(ButtonStyle.Danger),
+        new ButtonBuilder().setCustomId("paid_btn").setLabel("✔ Paid").setStyle(ButtonStyle.Success)
       );
 
-      await channel.send({
-        content: `${interaction.user}`,
-        embeds: [embed],
-        components: [buttons]
-      });
+      await channel.send({ embeds: [embed], components: [buttons] });
 
-      return interaction.reply({
-        content: `✅ Order ticket created: ${channel}`,
-        ephemeral: true
-      });
+      return interaction.reply({ content: `Created ${channel}`, ephemeral: true });
     }
   }
 });
 
-// ===== PROOF SYSTEM =====
-client.on("messageCreate", async (msg) => {
+// ===== MESSAGE ACTIVITY TRACK =====
+client.on("messageCreate", (msg) => {
   if (msg.author.bot) return;
-
-  if (!msg.channel.name.startsWith("order-")) return;
-
-  const att = msg.attachments.first();
-  if (!att || !att.contentType?.startsWith("image")) return;
-
-  const logChannel = msg.guild.channels.cache.find(c => c.name === "orders");
-
-  logChannel?.send({
-    embeds: [
-      new EmbedBuilder()
-        .setTitle("🧾 Payment Proof")
-        .addFields(
-          { name: "User", value: msg.author.tag },
-          { name: "Channel", value: msg.channel.name }
-        )
-        .setImage(att.url)
-        .setColor("Green")
-    ]
-  });
-
-  msg.reply("✅ Payment received, wait admin.");
+  if (msg.channel.name.startsWith("order-") || msg.channel.name.startsWith("support-")) {
+    ticketActivity.set(msg.channel.id, Date.now());
+  }
 });
 
 // ===== LOGIN =====
