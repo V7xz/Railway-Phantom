@@ -16,11 +16,12 @@ const {
   ModalBuilder,
   TextInputBuilder,
   TextInputStyle,
-  Collection
+  Collection,
+  AttachmentBuilder
 } = require("discord.js");
 
 // ─────────────────────────────────────────────
-// CLIENT — no GuildMembers (needs privileged intent)
+// CLIENT
 // ─────────────────────────────────────────────
 const client = new Client({
   intents: [
@@ -39,6 +40,7 @@ const CONFIG = {
   MAX_OPEN_TICKETS_PER_USER: 2,
   LOG_CHANNEL_NAME: "order-logs",
   REVIEW_CHANNEL_NAME: "reviews",
+  TRANSCRIPT_CHANNEL_NAME: "transcripts",
   STAFF_ROLE_NAME: "Staff",
   COOLDOWN_MS: 3000,
 };
@@ -46,11 +48,13 @@ const CONFIG = {
 // ─────────────────────────────────────────────
 // STORES
 // ─────────────────────────────────────────────
-const orderData       = new Map(); // channelId → record
-const activityMap     = new Map(); // channelId → timestamp
-const userTickets     = new Map(); // userId    → Set<channelId>
-const commandCooldown = new Collection();
-let   orderCounter    = 1;
+const orderData         = new Map(); // channelId → record
+const activityMap       = new Map(); // channelId → timestamp
+const userTickets       = new Map(); // userId    → Set<channelId>
+const commandCooldown   = new Collection();
+const ticketMessages    = new Map(); // channelId → Array<{author, content, timestamp}>
+let   orderCounter      = 1;
+let   transcriptChannelId = null; // set via /setup-transcript
 
 // ─────────────────────────────────────────────
 // SHOP CATALOGUE
@@ -121,9 +125,12 @@ const PAYMENT = {
 // ─────────────────────────────────────────────
 // UTILITIES
 // ─────────────────────────────────────────────
+const ADMIN_FLAG = PermissionsBitField.Flags.Administrator;
+const MANAGE_FLAG = PermissionsBitField.Flags.ManageChannels;
+
 const isAdmin = (member) =>
-  member.permissions.has(PermissionsBitField.Flags.Administrator) ||
-  member.permissions.has(PermissionsBitField.Flags.ManageChannels);
+  member.permissions.has(ADMIN_FLAG) ||
+  member.permissions.has(MANAGE_FLAG);
 
 const isStaff = (member) => {
   if (isAdmin(member)) return true;
@@ -136,15 +143,21 @@ const fmt = {
   id:    (n)  => `#${String(n).padStart(4, "0")}`
 };
 
-// Safe customId split — "prefix:channelId" where channelId may contain digits only
-// but we use this pattern everywhere for safety
 const splitCustomId = (str) => {
   const idx = str.indexOf(":");
   return [str.slice(0, idx), str.slice(idx + 1)];
 };
 
-const getLogChannel    = (guild) => guild.channels.cache.find(c => c.name === CONFIG.LOG_CHANNEL_NAME    && c.type === ChannelType.GuildText);
-const getReviewChannel = (guild) => guild.channels.cache.find(c => c.name === CONFIG.REVIEW_CHANNEL_NAME && c.type === ChannelType.GuildText);
+const getLogChannel = (guild) =>
+  guild.channels.cache.find(c => c.name === CONFIG.LOG_CHANNEL_NAME && c.type === ChannelType.GuildText);
+
+const getReviewChannel = (guild) =>
+  guild.channels.cache.find(c => c.name === CONFIG.REVIEW_CHANNEL_NAME && c.type === ChannelType.GuildText);
+
+const getTranscriptChannel = (guild) => {
+  if (transcriptChannelId) return guild.channels.cache.get(transcriptChannelId) || null;
+  return guild.channels.cache.find(c => c.name === CONFIG.TRANSCRIPT_CHANNEL_NAME && c.type === ChannelType.GuildText) || null;
+};
 
 async function safeReply(interaction, payload) {
   try {
@@ -200,6 +213,81 @@ function chunkArray(arr, size) {
   const out = [];
   for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
   return out;
+}
+
+// ─────────────────────────────────────────────
+// TRANSCRIPT GENERATOR
+// ─────────────────────────────────────────────
+function trackMessage(channelId, author, content) {
+  if (!ticketMessages.has(channelId)) ticketMessages.set(channelId, []);
+  ticketMessages.get(channelId).push({
+    author,
+    content,
+    timestamp: new Date().toISOString()
+  });
+}
+
+function buildTranscriptText(channelId, channelName, order) {
+  const messages = ticketMessages.get(channelId) || [];
+  const lines = [
+    `══════════════════════════════════════`,
+    `  BOBA SHOP — TICKET TRANSCRIPT`,
+    `══════════════════════════════════════`,
+    `Channel   : #${channelName}`,
+    `Channel ID: ${channelId}`,
+    order
+      ? [
+          `Order ID  : ${fmt.id(order.orderId)}`,
+          `Product   : ${order.item} (${order.variant})`,
+          `Price     : ${fmt.price(order.price)}`,
+          `Customer  : ${order.userId}`,
+          `Status    : ${statusBadge(order.status)}`,
+          `Payment   : ${order.paymentMethod || "N/A"}`,
+          `Opened    : ${new Date(order.createdAt).toUTCString()}`
+        ].join("\n")
+      : `Type      : Support Ticket`,
+    `══════════════════════════════════════`,
+    `MESSAGES (${messages.length} total)`,
+    `══════════════════════════════════════`,
+    ...messages.map(m =>
+      `[${m.timestamp}] ${m.author}\n  ${m.content}`
+    ),
+    `══════════════════════════════════════`,
+    `  END OF TRANSCRIPT`,
+    `══════════════════════════════════════`
+  ];
+  return lines.join("\n");
+}
+
+async function sendTranscript(guild, channelId, channelName, closedBy) {
+  const transcriptCh = getTranscriptChannel(guild);
+  if (!transcriptCh) return;
+
+  const order = orderData.get(channelId) || null;
+  const text  = buildTranscriptText(channelId, channelName, order);
+  const buffer = Buffer.from(text, "utf-8");
+  const attachment = new AttachmentBuilder(buffer, { name: `transcript-${channelName}.txt` });
+
+  const embed = new EmbedBuilder()
+    .setTitle("📄 Ticket Transcript")
+    .setColor(0x5865f2)
+    .addFields(
+      { name: "Channel",   value: `#${channelName}`,                         inline: true },
+      { name: "Closed By", value: closedBy ? `<@${closedBy}>` : "Auto",      inline: true },
+      { name: "Messages",  value: `${(ticketMessages.get(channelId) || []).length}`, inline: true }
+    );
+
+  if (order) {
+    embed.addFields(
+      { name: "Order",   value: fmt.id(order.orderId),    inline: true },
+      { name: "Product", value: `${order.item} (${order.variant})`, inline: true },
+      { name: "Status",  value: statusBadge(order.status), inline: true }
+    );
+  }
+
+  embed.setTimestamp();
+  await transcriptCh.send({ embeds: [embed], files: [attachment] }).catch(() => {});
+  ticketMessages.delete(channelId);
 }
 
 // ─────────────────────────────────────────────
@@ -349,55 +437,66 @@ async function logEvent(guild, type, data, actor) {
 }
 
 // ─────────────────────────────────────────────
-// COMMANDS
+// COMMANDS  (all admin-only)
 // ─────────────────────────────────────────────
 const ADMIN_PERM = PermissionsBitField.Flags.Administrator.toString();
-const STAFF_PERM = PermissionsBitField.Flags.ManageChannels.toString();
 
 const commands = [
-  // ── Public ──────────────────────────────────────────────────────
+  // ── Public (no permission required to see, but admin-only enforced in handler) ─
   new SlashCommandBuilder()
     .setName("shop")
     .setDescription("Browse the shop and place an order"),
+
   new SlashCommandBuilder()
     .setName("stock")
     .setDescription("View live product stock"),
 
-  // ── Staff only (hidden from regular users) ───────────────────────
-  new SlashCommandBuilder()
-    .setName("claim")
-    .setDescription("Claim this support/order ticket")
-    .setDefaultMemberPermissions(STAFF_PERM),
-  new SlashCommandBuilder()
-    .setName("close")
-    .setDescription("Close and delete this ticket")
-    .setDefaultMemberPermissions(STAFF_PERM),
-  new SlashCommandBuilder()
-    .setName("orderinfo")
-    .setDescription("Get full order info for this channel")
-    .setDefaultMemberPermissions(STAFF_PERM),
-
-  // ── Admin only (hidden from regular users) ───────────────────────
+  // ── All below: Admin only ────────────────────────────────────────────────────
   new SlashCommandBuilder()
     .setName("setup")
     .setDescription("Post the shop panel to this channel")
     .setDefaultMemberPermissions(ADMIN_PERM),
+
   new SlashCommandBuilder()
-    .setName("support-setup")
+    .setName("setup-support")
     .setDescription("Post the support panel to this channel")
     .setDefaultMemberPermissions(ADMIN_PERM),
+
+  new SlashCommandBuilder()
+    .setName("setup-transcript")
+    .setDescription("Set this channel as the transcript destination")
+    .setDefaultMemberPermissions(ADMIN_PERM),
+
   new SlashCommandBuilder()
     .setName("dashboard")
     .setDescription("View all active orders")
     .setDefaultMemberPermissions(ADMIN_PERM),
+
+  new SlashCommandBuilder()
+    .setName("orderinfo")
+    .setDescription("Get full order info for this ticket channel")
+    .setDefaultMemberPermissions(ADMIN_PERM),
+
+  new SlashCommandBuilder()
+    .setName("claim")
+    .setDescription("Claim this ticket")
+    .setDefaultMemberPermissions(ADMIN_PERM),
+
+  new SlashCommandBuilder()
+    .setName("close")
+    .setDescription("Close and delete this ticket (generates transcript)")
+    .setDefaultMemberPermissions(ADMIN_PERM),
+
   new SlashCommandBuilder()
     .setName("accept")
-    .setDescription("Approve payment in this channel")
+    .setDescription("Approve the payment in this ticket channel")
     .setDefaultMemberPermissions(ADMIN_PERM),
+
   new SlashCommandBuilder()
     .setName("reject")
-    .setDescription("Reject the order in this channel")
+    .setDescription("Reject the order in this ticket channel")
     .setDefaultMemberPermissions(ADMIN_PERM),
+
   new SlashCommandBuilder()
     .setName("addstock")
     .setDescription("Add stock to a product")
@@ -409,6 +508,7 @@ const commands = [
     .addIntegerOption(o =>
       o.setName("amount").setDescription("Amount to add").setRequired(true).setMinValue(1).setMaxValue(9999)
     ),
+
   new SlashCommandBuilder()
     .setName("setstock")
     .setDescription("Set exact stock for a product")
@@ -423,7 +523,7 @@ const commands = [
 ].map(c => c.toJSON());
 
 // ─────────────────────────────────────────────
-// REGISTER COMMANDS — sequential clear then register
+// REGISTER COMMANDS
 // ─────────────────────────────────────────────
 const rest = new REST({ version: "10" }).setToken(process.env.TOKEN);
 
@@ -464,7 +564,9 @@ client.once("ready", () => {
       if (now - last < threshold) continue;
       const ch = client.channels.cache.get(channelId);
       if (!ch) { orderData.delete(channelId); continue; }
+
       data.status = "cancelled";
+
       await ch.send({
         embeds: [
           new EmbedBuilder()
@@ -474,8 +576,11 @@ client.once("ready", () => {
             .setTimestamp()
         ]
       }).catch(() => {});
-      await ch.setName(`expired-${ch.name.split("-").pop()}`).catch(() => {});
+
+      trackMessage(channelId, "SYSTEM", `[AUTO-CLOSE] Ticket closed after ${CONFIG.AUTO_CLOSE_HOURS}h of inactivity.`);
+      await sendTranscript(ch.guild, channelId, ch.name, null);
       await logEvent(ch.guild, "auto_close", data, null);
+      await ch.setName(`expired-${ch.name.split("-").pop()}`).catch(() => {});
     }
   }, 30 * 60 * 1000);
 });
@@ -507,22 +612,12 @@ client.on("interactionCreate", async (interaction) => {
 async function handleSlash(interaction) {
   const { commandName, guild, member, channel } = interaction;
 
+  // ── /shop ────────────────────────────────────────────────────────────────────
   if (commandName === "shop") {
     return interaction.reply({ embeds: [buildShopEmbed()], components: [buildShopRow()], flags: 64 });
   }
 
-  if (commandName === "setup") {
-    if (!isAdmin(member)) return safeReply(interaction, { content: "❌ Admin only." });
-    await channel.send({ embeds: [buildShopEmbed()], components: [buildShopRow()] });
-    return interaction.reply({ content: "✅ Shop panel posted.", flags: 64 });
-  }
-
-  if (commandName === "support-setup") {
-    if (!isAdmin(member)) return safeReply(interaction, { content: "❌ Admin only." });
-    await channel.send({ embeds: [buildSupportEmbed()], components: [buildSupportRow()] });
-    return interaction.reply({ content: "✅ Support panel posted.", flags: 64 });
-  }
-
+  // ── /stock ───────────────────────────────────────────────────────────────────
   if (commandName === "stock") {
     const e = new EmbedBuilder().setTitle("📦 Live Stock").setColor(0x2b2d31).setTimestamp();
     shopItems.forEach(item => {
@@ -535,29 +630,37 @@ async function handleSlash(interaction) {
     return interaction.reply({ embeds: [e], flags: 64 });
   }
 
-  if (commandName === "addstock") {
+  // ── /setup ───────────────────────────────────────────────────────────────────
+  if (commandName === "setup") {
     if (!isAdmin(member)) return safeReply(interaction, { content: "❌ Admin only." });
-    const item = shopItems.find(i => i.id === interaction.options.getString("product"));
-    if (!item) return safeReply(interaction, { content: "❌ Product not found." });
-    const amount = interaction.options.getInteger("amount");
-    item.stock += amount;
+    await channel.send({ embeds: [buildShopEmbed()], components: [buildShopRow()] });
+    return interaction.reply({ content: "✅ Shop panel posted.", flags: 64 });
+  }
+
+  // ── /setup-support ───────────────────────────────────────────────────────────
+  if (commandName === "setup-support") {
+    if (!isAdmin(member)) return safeReply(interaction, { content: "❌ Admin only." });
+    await channel.send({ embeds: [buildSupportEmbed()], components: [buildSupportRow()] });
+    return interaction.reply({ content: "✅ Support panel posted.", flags: 64 });
+  }
+
+  // ── /setup-transcript ────────────────────────────────────────────────────────
+  if (commandName === "setup-transcript") {
+    if (!isAdmin(member)) return safeReply(interaction, { content: "❌ Admin only." });
+    transcriptChannelId = channel.id;
     return interaction.reply({
-      embeds: [new EmbedBuilder().setColor(0x57f287).setDescription(`✅ Added **${amount}** to **${item.name}**. Now: **${item.stock}** in stock.`)],
+      embeds: [
+        new EmbedBuilder()
+          .setColor(0x57f287)
+          .setTitle("✅ Transcript Channel Set")
+          .setDescription(`All ticket transcripts will now be posted in ${channel}.\n\nTranscripts are automatically generated when a ticket is closed.`)
+          .setTimestamp()
+      ],
       flags: 64
     });
   }
 
-  if (commandName === "setstock") {
-    if (!isAdmin(member)) return safeReply(interaction, { content: "❌ Admin only." });
-    const item = shopItems.find(i => i.id === interaction.options.getString("product"));
-    if (!item) return safeReply(interaction, { content: "❌ Product not found." });
-    item.stock = interaction.options.getInteger("amount");
-    return interaction.reply({
-      embeds: [new EmbedBuilder().setColor(0x57f287).setDescription(`✅ **${item.name}** stock set to **${item.stock}**.`)],
-      flags: 64
-    });
-  }
-
+  // ── /dashboard ───────────────────────────────────────────────────────────────
   if (commandName === "dashboard") {
     if (!isAdmin(member)) return safeReply(interaction, { content: "❌ Admin only." });
     const all = [...orderData.entries()];
@@ -574,37 +677,46 @@ async function handleSlash(interaction) {
     return interaction.reply({ embeds: [e], flags: 64 });
   }
 
+  // ── /orderinfo ───────────────────────────────────────────────────────────────
   if (commandName === "orderinfo") {
-    if (!isStaff(member)) return safeReply(interaction, { content: "❌ Staff only." });
+    if (!isAdmin(member)) return safeReply(interaction, { content: "❌ Admin only." });
     const order = orderData.get(channel.id);
     if (!order) return safeReply(interaction, { content: "❌ No order attached to this channel." });
     return interaction.reply({ embeds: [buildOrderEmbed(order)], flags: 64 });
   }
 
+  // ── /claim ───────────────────────────────────────────────────────────────────
   if (commandName === "claim") {
-    if (!isStaff(member)) return safeReply(interaction, { content: "❌ Staff only." });
+    if (!isAdmin(member)) return safeReply(interaction, { content: "❌ Admin only." });
     const data = orderData.get(channel.id);
     if (data) data.claimedBy = interaction.user.id;
+    trackMessage(channel.id, "SYSTEM", `[CLAIMED] Ticket claimed by ${interaction.user.tag}`);
     await channel.setName(`claimed-${interaction.user.username.slice(0, 20).toLowerCase()}`).catch(() => {});
     return interaction.reply({
       embeds: [new EmbedBuilder().setColor(0x5865f2).setDescription(`📌 Claimed by <@${interaction.user.id}>`)]
     });
   }
 
+  // ── /close ───────────────────────────────────────────────────────────────────
   if (commandName === "close") {
-    if (!isStaff(member)) return safeReply(interaction, { content: "❌ Staff only." });
+    if (!isAdmin(member)) return safeReply(interaction, { content: "❌ Admin only." });
     const data = orderData.get(channel.id);
     if (data) {
       data.status = "cancelled";
       await logEvent(guild, "cancelled", data, interaction.user);
     }
+
+    trackMessage(channel.id, "SYSTEM", `[CLOSED] Ticket closed by ${interaction.user.tag}`);
+    await sendTranscript(guild, channel.id, channel.name, interaction.user.id);
+
     await interaction.reply({
-      embeds: [new EmbedBuilder().setColor(0x4f545c).setDescription("🚫 Ticket closed. Deleting in 5 seconds...")]
+      embeds: [new EmbedBuilder().setColor(0x4f545c).setDescription("🚫 Ticket closed. Transcript saved. Deleting in 5 seconds...")]
     });
     setTimeout(() => channel.delete().catch(() => {}), 5000);
     return;
   }
 
+  // ── /accept ──────────────────────────────────────────────────────────────────
   if (commandName === "accept") {
     if (!isAdmin(member)) return safeReply(interaction, { content: "❌ Admin only." });
     const data = orderData.get(channel.id);
@@ -644,6 +756,7 @@ async function handleSlash(interaction) {
     });
   }
 
+  // ── /reject ──────────────────────────────────────────────────────────────────
   if (commandName === "reject") {
     if (!isAdmin(member)) return safeReply(interaction, { content: "❌ Admin only." });
     const data = orderData.get(channel.id);
@@ -666,6 +779,31 @@ async function handleSlash(interaction) {
         )
     );
   }
+
+  // ── /addstock ────────────────────────────────────────────────────────────────
+  if (commandName === "addstock") {
+    if (!isAdmin(member)) return safeReply(interaction, { content: "❌ Admin only." });
+    const item = shopItems.find(i => i.id === interaction.options.getString("product"));
+    if (!item) return safeReply(interaction, { content: "❌ Product not found." });
+    const amount = interaction.options.getInteger("amount");
+    item.stock += amount;
+    return interaction.reply({
+      embeds: [new EmbedBuilder().setColor(0x57f287).setDescription(`✅ Added **${amount}** to **${item.name}**. Now: **${item.stock}** in stock.`)],
+      flags: 64
+    });
+  }
+
+  // ── /setstock ────────────────────────────────────────────────────────────────
+  if (commandName === "setstock") {
+    if (!isAdmin(member)) return safeReply(interaction, { content: "❌ Admin only." });
+    const item = shopItems.find(i => i.id === interaction.options.getString("product"));
+    if (!item) return safeReply(interaction, { content: "❌ Product not found." });
+    item.stock = interaction.options.getInteger("amount");
+    return interaction.reply({
+      embeds: [new EmbedBuilder().setColor(0x57f287).setDescription(`✅ **${item.name}** stock set to **${item.stock}**.`)],
+      flags: 64
+    });
+  }
 }
 
 // ─────────────────────────────────────────────
@@ -675,6 +813,7 @@ async function handleButton(interaction) {
   const { customId, guild, user, member, channel } = interaction;
   activityMap.set(channel.id, Date.now());
 
+  // ── Browse & Buy ─────────────────────────────────────────────────────────────
   if (customId === "open_shop") {
     return interaction.reply({
       embeds: [new EmbedBuilder().setTitle("🛒 Select a Product").setColor(0x2b2d31).setDescription("Pick a product and duration below.")],
@@ -683,6 +822,7 @@ async function handleButton(interaction) {
     });
   }
 
+  // ── Live Stock ───────────────────────────────────────────────────────────────
   if (customId === "view_stock") {
     const e = new EmbedBuilder().setTitle("📦 Live Stock").setColor(0x2b2d31).setTimestamp();
     shopItems.forEach(item => {
@@ -695,6 +835,7 @@ async function handleButton(interaction) {
     return interaction.reply({ embeds: [e], flags: 64 });
   }
 
+  // ── Open Support Ticket ──────────────────────────────────────────────────────
   if (customId === "ticket_support") {
     if (userOpenTicketCount(user.id) >= CONFIG.MAX_OPEN_TICKETS_PER_USER) {
       return safeReply(interaction, { content: `❌ You already have **${CONFIG.MAX_OPEN_TICKETS_PER_USER}** open tickets.` });
@@ -710,6 +851,8 @@ async function handleButton(interaction) {
     if (!userTickets.has(user.id)) userTickets.set(user.id, new Set());
     userTickets.get(user.id).add(ch.id);
 
+    trackMessage(ch.id, "SYSTEM", `[OPENED] Support ticket opened by ${user.tag}`);
+
     await ch.send({
       content: `<@${user.id}>`,
       embeds: [
@@ -718,8 +861,8 @@ async function handleButton(interaction) {
           .setColor(0x5865f2)
           .setDescription("Staff will be with you shortly. Describe your issue in detail.")
           .addFields(
-            { name: "Opened by", value: `<@${user.id}>`,      inline: true },
-            { name: "Opened",    value: fmt.ts(Date.now()),    inline: true }
+            { name: "Opened by", value: `<@${user.id}>`, inline: true },
+            { name: "Opened",    value: fmt.ts(Date.now()), inline: true }
           )
       ],
       components: [
@@ -731,17 +874,22 @@ async function handleButton(interaction) {
     return interaction.reply({ content: `✅ Support ticket created: ${ch}`, flags: 64 });
   }
 
+  // ── Close Support Ticket ─────────────────────────────────────────────────────
   if (customId === "close_support") {
-    if (!isStaff(member)) return safeReply(interaction, { content: "❌ Staff only." });
-    await interaction.reply({ content: "🚫 Deleting in 5 seconds...", flags: 64 });
+    if (!isAdmin(member)) return safeReply(interaction, { content: "❌ Admin only." });
+    trackMessage(channel.id, "SYSTEM", `[CLOSED] Support ticket closed by ${interaction.user.tag}`);
+    await sendTranscript(guild, channel.id, channel.name, interaction.user.id);
+    await interaction.reply({ content: "🚫 Transcript saved. Deleting in 5 seconds...", flags: 64 });
     setTimeout(() => channel.delete().catch(() => {}), 5000);
     return;
   }
 
+  // ── Choose Payment ───────────────────────────────────────────────────────────
   if (customId === "choose_payment") {
     return interaction.reply({ content: "💳 **Select your payment method:**", components: [buildPaymentSelect()], flags: 64 });
   }
 
+  // ── I've Paid ────────────────────────────────────────────────────────────────
   if (customId === "paid_btn") {
     const data = orderData.get(channel.id);
     if (!data)                             return safeReply(interaction, { content: "❌ No order found for this channel." });
@@ -749,11 +897,12 @@ async function handleButton(interaction) {
     if (data.status !== "waiting_payment") return safeReply(interaction, { content: "⚠️ This order is already submitted." });
     if (!data.paymentMethod)               return safeReply(interaction, { content: "❌ Choose a payment method first!", components: [buildPaymentSelect()] });
 
-    // Acknowledge the button with a proper reply (not deferUpdate) to avoid followUp flag issues
     await interaction.reply({ content: "✅ Submitted! Waiting for admin to verify your payment...", flags: 64 });
 
     data.status = "waiting_review";
     data.paidAt = Date.now();
+
+    trackMessage(channel.id, user.tag, `[PAID] Marked payment as sent via ${data.paymentMethod}`);
 
     const logCh = getLogChannel(guild);
     if (logCh) {
@@ -781,7 +930,7 @@ async function handleButton(interaction) {
     return;
   }
 
-  // Admin approve button (from log channel)
+  // ── Approve Order (log channel button) ──────────────────────────────────────
   if (customId.startsWith("approve_order:")) {
     if (!isAdmin(member)) return safeReply(interaction, { content: "❌ Admin only." });
     const [, targetChannelId] = splitCustomId(customId);
@@ -796,6 +945,7 @@ async function handleButton(interaction) {
 
     const targetCh = guild.channels.cache.get(targetChannelId);
     if (targetCh) {
+      trackMessage(targetChannelId, "SYSTEM", `[APPROVED] Order approved by ${interaction.user.tag}`);
       await targetCh.send({
         content: `<@${data.userId}>`,
         embeds: [
@@ -831,7 +981,7 @@ async function handleButton(interaction) {
     return;
   }
 
-  // Admin reject button (from log channel)
+  // ── Reject Order (log channel button) ───────────────────────────────────────
   if (customId.startsWith("reject_order:")) {
     if (!isAdmin(member)) return safeReply(interaction, { content: "❌ Admin only." });
     const [, targetChannelId] = splitCustomId(customId);
@@ -852,13 +1002,14 @@ async function handleButton(interaction) {
     );
   }
 
-  // Admin request more info
+  // ── Request More Info (log channel button) ───────────────────────────────────
   if (customId.startsWith("request_info:")) {
     if (!isAdmin(member)) return safeReply(interaction, { content: "❌ Admin only." });
     const [, targetChannelId] = splitCustomId(customId);
     const data     = orderData.get(targetChannelId);
     const targetCh = guild.channels.cache.get(targetChannelId);
     if (targetCh && data) {
+      trackMessage(targetChannelId, "SYSTEM", `[INFO REQUESTED] Admin ${interaction.user.tag} requested more info`);
       await targetCh.send({
         content: `<@${data.userId}>`,
         embeds: [
@@ -872,7 +1023,7 @@ async function handleButton(interaction) {
     return safeReply(interaction, { content: "✅ User notified." });
   }
 
-  // Leave review
+  // ── Leave Review ─────────────────────────────────────────────────────────────
   if (customId.startsWith("leave_review:")) {
     return interaction.showModal(
       new ModalBuilder()
@@ -908,6 +1059,7 @@ async function handleButton(interaction) {
 async function handleSelect(interaction) {
   const { customId, guild, user, channel } = interaction;
 
+  // ── Select Item ──────────────────────────────────────────────────────────────
   if (customId === "select_item") {
     const [itemId, variantValue, price, itemName, variantLabel] = interaction.values[0].split("|");
     const item = shopItems.find(i => i.id === itemId);
@@ -941,6 +1093,8 @@ async function handleSelect(interaction) {
     if (!userTickets.has(user.id)) userTickets.set(user.id, new Set());
     userTickets.get(user.id).add(ch.id);
 
+    trackMessage(ch.id, "SYSTEM", `[OPENED] Order ticket #${fmt.id(orderId)} opened by ${user.tag} for ${itemName} (${variantLabel}) at ${fmt.price(price)}`);
+
     await ch.send({
       content: `<@${user.id}>`,
       embeds: [
@@ -970,9 +1124,8 @@ async function handleSelect(interaction) {
     return interaction.reply({ content: `✅ Order channel created: ${ch}`, flags: 64 });
   }
 
+  // ── Select Payment ───────────────────────────────────────────────────────────
   if (customId === "select_payment") {
-    // Find the user's active order — search by userId in case they're selecting
-    // from an ephemeral menu opened outside their order channel
     let data = orderData.get(channel.id);
     if (!data || data.userId !== user.id) {
       for (const [, record] of orderData.entries()) {
@@ -992,6 +1145,8 @@ async function handleSelect(interaction) {
     if (!method) return safeReply(interaction, { content: "❌ Invalid payment method." });
 
     data.paymentMethod = method.label;
+
+    trackMessage(channel.id, user.tag, `[PAYMENT METHOD] Selected: ${method.label}`);
 
     const e = new EmbedBuilder()
       .setTitle(`${method.emoji}  ${method.label} — Payment Instructions`)
@@ -1014,6 +1169,7 @@ async function handleSelect(interaction) {
 async function handleModal(interaction) {
   const { customId, guild, user } = interaction;
 
+  // ── Reject Modal ─────────────────────────────────────────────────────────────
   if (customId.startsWith("modal_reject:")) {
     const [, targetChannelId] = splitCustomId(customId);
     const reason = interaction.fields.getTextInputValue("reason");
@@ -1027,6 +1183,7 @@ async function handleModal(interaction) {
 
     const targetCh = guild.channels.cache.get(targetChannelId);
     if (targetCh) {
+      trackMessage(targetChannelId, "SYSTEM", `[REJECTED] Order rejected by ${user.tag}. Reason: ${reason}`);
       await targetCh.send({
         content: `<@${data.userId}>`,
         embeds: [
@@ -1047,6 +1204,7 @@ async function handleModal(interaction) {
     });
   }
 
+  // ── Review Modal ─────────────────────────────────────────────────────────────
   if (customId.startsWith("modal_review:")) {
     const [, targetChannelId] = splitCustomId(customId);
     const rating    = interaction.fields.getTextInputValue("rating").trim();
@@ -1060,6 +1218,8 @@ async function handleModal(interaction) {
     const starStr  = "⭐".repeat(stars) + "☆".repeat(5 - stars);
     const data     = orderData.get(targetChannelId);
     const reviewCh = getReviewChannel(guild);
+
+    trackMessage(targetChannelId, user.tag, `[REVIEW] ${stars}/5 stars — ${reviewTxt}`);
 
     if (reviewCh) {
       await reviewCh.send({
@@ -1085,13 +1245,21 @@ async function handleModal(interaction) {
 }
 
 // ─────────────────────────────────────────────
-// ACTIVITY TRACKER
+// ACTIVITY + MESSAGE TRACKER
 // ─────────────────────────────────────────────
 client.on("messageCreate", (msg) => {
   if (msg.author.bot) return;
   const name = msg.channel.name || "";
-  if (name.startsWith("order-") || name.startsWith("support-") || name.startsWith("claimed-")) {
+
+  if (
+    name.startsWith("order-")   ||
+    name.startsWith("support-") ||
+    name.startsWith("claimed-") ||
+    name.startsWith("approved-")||
+    name.startsWith("rejected-")
+  ) {
     activityMap.set(msg.channel.id, Date.now());
+    trackMessage(msg.channel.id, `${msg.author.tag}`, msg.content || "[attachment/embed]");
   }
 });
 
