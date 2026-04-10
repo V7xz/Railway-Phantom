@@ -225,9 +225,26 @@ function buildShopEmbed() {
 
 function buildShopRow() {
   return new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId("open_shop")     .setLabel("Browse & Buy").setStyle(ButtonStyle.Primary)  .setEmoji("🛍️"),
-    new ButtonBuilder().setCustomId("ticket_support").setLabel("Support")     .setStyle(ButtonStyle.Secondary).setEmoji("🎫"),
-    new ButtonBuilder().setCustomId("view_stock")    .setLabel("Live Stock")  .setStyle(ButtonStyle.Secondary).setEmoji("📦")
+    new ButtonBuilder().setCustomId("open_shop") .setLabel("Browse & Buy").setStyle(ButtonStyle.Primary)  .setEmoji("🛍️"),
+    new ButtonBuilder().setCustomId("view_stock").setLabel("Live Stock")  .setStyle(ButtonStyle.Secondary).setEmoji("📦")
+  );
+}
+
+function buildSupportEmbed() {
+  return new EmbedBuilder()
+    .setTitle("🎫  SUPPORT")
+    .setDescription("Need help with an order or have a question?\nClick the button below to open a **private** support ticket.\n\nA staff member will assist you as soon as possible.")
+    .setColor(0x5865f2)
+    .addFields(
+      { name: "📌 Before opening a ticket", value: "• Check if your question is already answered\n• Have your order ID ready if it's order-related\n• Be patient — staff will respond shortly", inline: false }
+    )
+    .setFooter({ text: "Do not abuse the ticket system." })
+    .setTimestamp();
+}
+
+function buildSupportRow() {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId("ticket_support").setLabel("Open a Support Ticket").setStyle(ButtonStyle.Primary).setEmoji("🎫")
   );
 }
 
@@ -334,19 +351,57 @@ async function logEvent(guild, type, data, actor) {
 // ─────────────────────────────────────────────
 // COMMANDS
 // ─────────────────────────────────────────────
+const ADMIN_PERM = PermissionsBitField.Flags.Administrator.toString();
+const STAFF_PERM = PermissionsBitField.Flags.ManageChannels.toString();
+
 const commands = [
-  new SlashCommandBuilder().setName("shop")     .setDescription("Open the shop panel"),
-  new SlashCommandBuilder().setName("setup")    .setDescription("[Admin] Post the shop panel to this channel"),
-  new SlashCommandBuilder().setName("stock")    .setDescription("View live product stock"),
-  new SlashCommandBuilder().setName("dashboard").setDescription("[Admin] View all active orders"),
-  new SlashCommandBuilder().setName("orderinfo").setDescription("[Staff] Get order info for this channel"),
-  new SlashCommandBuilder().setName("claim")    .setDescription("[Staff] Claim this ticket"),
-  new SlashCommandBuilder().setName("close")    .setDescription("[Staff] Close and delete this ticket"),
-  new SlashCommandBuilder().setName("accept")   .setDescription("[Admin] Approve payment in this channel"),
-  new SlashCommandBuilder().setName("reject")   .setDescription("[Admin] Reject the order in this channel"),
+  // ── Public ──────────────────────────────────────────────────────
+  new SlashCommandBuilder()
+    .setName("shop")
+    .setDescription("Browse the shop and place an order"),
+  new SlashCommandBuilder()
+    .setName("stock")
+    .setDescription("View live product stock"),
+
+  // ── Staff only (hidden from regular users) ───────────────────────
+  new SlashCommandBuilder()
+    .setName("claim")
+    .setDescription("Claim this support/order ticket")
+    .setDefaultMemberPermissions(STAFF_PERM),
+  new SlashCommandBuilder()
+    .setName("close")
+    .setDescription("Close and delete this ticket")
+    .setDefaultMemberPermissions(STAFF_PERM),
+  new SlashCommandBuilder()
+    .setName("orderinfo")
+    .setDescription("Get full order info for this channel")
+    .setDefaultMemberPermissions(STAFF_PERM),
+
+  // ── Admin only (hidden from regular users) ───────────────────────
+  new SlashCommandBuilder()
+    .setName("setup")
+    .setDescription("Post the shop panel to this channel")
+    .setDefaultMemberPermissions(ADMIN_PERM),
+  new SlashCommandBuilder()
+    .setName("support-setup")
+    .setDescription("Post the support panel to this channel")
+    .setDefaultMemberPermissions(ADMIN_PERM),
+  new SlashCommandBuilder()
+    .setName("dashboard")
+    .setDescription("View all active orders")
+    .setDefaultMemberPermissions(ADMIN_PERM),
+  new SlashCommandBuilder()
+    .setName("accept")
+    .setDescription("Approve payment in this channel")
+    .setDefaultMemberPermissions(ADMIN_PERM),
+  new SlashCommandBuilder()
+    .setName("reject")
+    .setDescription("Reject the order in this channel")
+    .setDefaultMemberPermissions(ADMIN_PERM),
   new SlashCommandBuilder()
     .setName("addstock")
-    .setDescription("[Admin] Add stock to a product")
+    .setDescription("Add stock to a product")
+    .setDefaultMemberPermissions(ADMIN_PERM)
     .addStringOption(o =>
       o.setName("product").setDescription("Product").setRequired(true)
        .addChoices(...shopItems.map(i => ({ name: i.name, value: i.id })))
@@ -356,7 +411,8 @@ const commands = [
     ),
   new SlashCommandBuilder()
     .setName("setstock")
-    .setDescription("[Admin] Set exact stock for a product")
+    .setDescription("Set exact stock for a product")
+    .setDefaultMemberPermissions(ADMIN_PERM)
     .addStringOption(o =>
       o.setName("product").setDescription("Product").setRequired(true)
        .addChoices(...shopItems.map(i => ({ name: i.name, value: i.id })))
@@ -459,6 +515,12 @@ async function handleSlash(interaction) {
     if (!isAdmin(member)) return safeReply(interaction, { content: "❌ Admin only." });
     await channel.send({ embeds: [buildShopEmbed()], components: [buildShopRow()] });
     return interaction.reply({ content: "✅ Shop panel posted.", flags: 64 });
+  }
+
+  if (commandName === "support-setup") {
+    if (!isAdmin(member)) return safeReply(interaction, { content: "❌ Admin only." });
+    await channel.send({ embeds: [buildSupportEmbed()], components: [buildSupportRow()] });
+    return interaction.reply({ content: "✅ Support panel posted.", flags: 64 });
   }
 
   if (commandName === "stock") {
