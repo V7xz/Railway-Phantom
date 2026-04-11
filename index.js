@@ -488,14 +488,15 @@ async function registerCommands() {
   }
 }
 
-registerCommands();
-
 // ─────────────────────────────────────────────
 // READY
 // ─────────────────────────────────────────────
-client.once("ready", () => {
+client.once("ready", async () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
   client.user.setActivity("https://phantomexternal.mysellauth.com/", { type: 0 });
+
+  // Register commands AFTER login so the process doesn't get killed first
+  await registerCommands();
 
   // Auto-close idle tickets every 30 min
   setInterval(async () => {
@@ -532,16 +533,27 @@ client.once("ready", () => {
 // INTERACTION ROUTER
 // ─────────────────────────────────────────────
 client.on("interactionCreate", async (interaction) => {
+  // Modals cannot be deferred — handle them first
+  if (interaction.isModalSubmit()) {
+    try { return await handleModal(interaction); }
+    catch (err) {
+      console.error("[modal]", err);
+      return safeReply(interaction, { content: "❌ Something went wrong." });
+    }
+  }
+
+  // For everything else, acknowledge immediately to prevent the 3s timeout
+  if (!interaction.isChatInputCommand() && !interaction.isButton() && !interaction.isStringSelectMenu()) return;
+
   try {
-    if (interaction.isModalSubmit())      return handleModal(interaction);
-    if (interaction.isChatInputCommand()) return handleSlash(interaction);
+    if (interaction.isChatInputCommand()) return await handleSlash(interaction);
     if (interaction.isButton()) {
       if (onCooldown(interaction.user.id)) return safeReply(interaction, { content: "⏳ Slow down a bit." });
-      return handleButton(interaction);
+      return await handleButton(interaction);
     }
     if (interaction.isStringSelectMenu()) {
       if (onCooldown(interaction.user.id)) return safeReply(interaction, { content: "⏳ Slow down a bit." });
-      return handleSelect(interaction);
+      return await handleSelect(interaction);
     }
   } catch (err) {
     console.error("[interaction]", err);
@@ -1209,6 +1221,16 @@ process.on("unhandledRejection", (reason) => console.error("[unhandledRejection]
 process.on("uncaughtException",  (err)    => console.error("[uncaughtException]",  err));
 
 // ─────────────────────────────────────────────
-// LOGIN
+// LOGIN — validate env vars first
 // ─────────────────────────────────────────────
-client.login(process.env.TOKEN);
+const MISSING = ["TOKEN", "CLIENT_ID", "GUILD_ID"].filter(k => !process.env[k]);
+if (MISSING.length) {
+  console.error(`❌ Missing required environment variables: ${MISSING.join(", ")}`);
+  console.error("   Make sure your .env file exists and contains TOKEN, CLIENT_ID, and GUILD_ID.");
+  process.exit(1);
+}
+
+client.login(process.env.TOKEN).catch(err => {
+  console.error("❌ Failed to login:", err.message);
+  process.exit(1);
+});
