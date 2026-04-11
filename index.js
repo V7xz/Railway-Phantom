@@ -35,7 +35,7 @@ const CONFIG = {
   LOG_CHANNEL_NAME: "order-logs",
   REVIEW_CHANNEL_NAME: "reviews",
   TRANSCRIPT_CHANNEL_NAME: "transcripts",
-  STAFF_ROLE_NAME: "Staff",
+  STAFF_ROLE_NAME: "dev",
   COOLDOWN_MS: 3000,
 };
 
