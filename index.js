@@ -949,13 +949,11 @@ async function handleSelect(interaction) {
   }
 
   // ── NEW: SELECT SCRIPT PRODUCT ────────────────────────────────────────────
-  if (customId === "select_script_product") {
+if (customId === "select_script_product") {
     const productValue = interaction.values[0];
     const product = scriptProducts.find(p => p.value === productValue);
     if (!product) return safeReply(interaction, { content: "❌ Script not found." });
-
     trackMessage(channel.id, user.tag, `[SCRIPT SELECTED] ${product.label}`);
-
     await interaction.reply({
       embeds: [
         new EmbedBuilder()
@@ -963,11 +961,11 @@ async function handleSelect(interaction) {
           .setColor(0x5865f2)
           .setDescription("Please select how long you'd like access to this script.")
           .addFields(
-            { name: "1 Day",    value: `${fmt.price()}`,  inline: true },
-            { name: "3 Days",   value: `${fmt.price(7.99)}`,  inline: true },
-            { name: "7 Days",   value: `${fmt.price(12.99)}`, inline: true },
-            { name: "1 Month",  value: `${fmt.price(24.99)}`, inline: true },
-            { name: "Lifetime", value: `${fmt.price(39.99)}`, inline: true }
+            { name: "1 Day",    value: `Rp ${(10.000).toLocaleString('id-ID')}`,   inline: true },
+            { name: "3 Days",   value: `Rp ${(20.000).toLocaleString('id-ID')}`,    inline: true },
+            { name: "7 Days",   value: `Rp ${(35.000).toLocaleString('id-ID')}`,   inline: true },
+            { name: "1 Month",  value: `Rp ${(130.000).toLocaleString('id-ID')}`,   inline: true },
+            { name: "Lifetime", value: `Rp ${(200.000).toLocaleString('id-ID')}`,   inline: true }
           )
           .setFooter({ text: "Select a duration below to continue." })
           .setTimestamp()
