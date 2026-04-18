@@ -69,11 +69,11 @@ const scriptProducts = [
 ];
 
 const scriptDurations = [
-  { label: "1 Day",     value: "1d",       price: 3.99  },
-  { label: "3 Days",    value: "3d",       price: 7.99  },
-  { label: "7 Days",    value: "7d",       price: 12.99 },
-  { label: "1 Month",   value: "1m",       price: 24.99 },
-  { label: "Lifetime",  value: "lifetime", price: 39.99 }
+  { label: "1 Day",     value: "1d",       price: 10000  },
+  { label: "3 Days",    value: "3d",       price: 20000  },
+  { label: "7 Days",    value: "7d",       price: 35000  },
+  { label: "1 Month",   value: "1m",       price: 130000 },
+  { label: "Lifetime",  value: "lifetime", price: 200000 }
 ];
 
 const PAYMENT = {
@@ -961,11 +961,11 @@ if (customId === "select_script_product") {
           .setColor(0x5865f2)
           .setDescription("Please select how long you'd like access to this script.")
           .addFields(
-            { name: "1 Day",    value: `Rp ${(10.000).toLocaleString('id-ID')}`,   inline: true },
-            { name: "3 Days",   value: `Rp ${(20.000).toLocaleString('id-ID')}`,    inline: true },
-            { name: "7 Days",   value: `Rp ${(35.000).toLocaleString('id-ID')}`,   inline: true },
-            { name: "1 Month",  value: `Rp ${(130.000).toLocaleString('id-ID')}`,   inline: true },
-            { name: "Lifetime", value: `Rp ${(200.000).toLocaleString('id-ID')}`,   inline: true }
+            { name: "1 Day",    value: `Rp ${(10000).toLocaleString('id-ID')}`,   inline: true },
+            { name: "3 Days",   value: `Rp ${(20000).toLocaleString('id-ID')}`,    inline: true },
+            { name: "7 Days",   value: `Rp ${(35000).toLocaleString('id-ID')}`,   inline: true },
+            { name: "1 Month",  value: `Rp ${(130000).toLocaleString('id-ID')}`,   inline: true },
+            { name: "Lifetime", value: `Rp ${(200000).toLocaleString('id-ID')}`,   inline: true }
           )
           .setFooter({ text: "Select a duration below to continue." })
           .setTimestamp()
