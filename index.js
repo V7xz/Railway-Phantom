@@ -971,11 +971,11 @@ async function handleSelect(interaction) {
           .setColor(0x5865f2)
           .setDescription("Please select how long you'd like access to this script.")
           .addFields(
-            { name: "1 Day",    value: `Rp {(10000).toLocaleString('id-ID')}`,   inline: true },
-            { name: "3 Days",   value: `Rp {(20000).toLocaleString('id-ID')}`,    inline: true },
-            { name: "7 Days",   value: `Rp {(35000).toLocaleString('id-ID')}`,   inline: true },
-            { name: "1 Month",  value: `Rp {(130000).toLocaleString('id-ID')}`,   inline: true },
-            { name: "Lifetime", value: `Rp {(200000).toLocaleString('id-ID')}`,   inline: true }
+            { name: "1 Day",    value: `Rp ${(10000).toLocaleString('id-ID')}`,   inline: true },
+            { name: "3 Days",   value: `Rp ${(20000).toLocaleString('id-ID')}`,    inline: true },
+            { name: "7 Days",   value: `Rp ${(35000).toLocaleString('id-ID')}`,   inline: true },
+            { name: "1 Month",  value: `Rp ${(100000).toLocaleString('id-ID')}`,   inline: true },
+            { name: "Lifetime", value: `Rp ${(150000).toLocaleString('id-ID')}`,   inline: true }
           )
           .setFooter({ text: "Select a duration below to continue." })
           .setTimestamp()
