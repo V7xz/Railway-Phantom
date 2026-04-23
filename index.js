@@ -73,7 +73,7 @@ const shopItems = [
 ];
 
 const externalProducts = [
-  { label: "Roblox [ Lifetime ]", value: "roblox_lifetime", price: 9.99, emoji: "🎮" }
+  { label: "Roblox [ Lifetime ]", value: "roblox_lifetime", price: 8.00,}
 ];
 
 const scriptProducts = [
@@ -81,11 +81,11 @@ const scriptProducts = [
 ];
 
 const scriptDurations = [
-  { label: "1 Day",     value: "1d",       price: 3.99  },
-  { label: "3 Days",    value: "3d",       price: 7.99  },
-  { label: "7 Days",    value: "7d",       price: 12.99 },
-  { label: "1 Month",   value: "1m",       price: 24.99 },
-  { label: "Lifetime",  value: "lifetime", price: 39.99 }
+  { label: "1 Day",     value: "1d",       price: 10.000  },
+  { label: "3 Days",    value: "3d",       price: 20.000  },
+  { label: "7 Days",    value: "7d",       price: 35.000 },
+  { label: "1 Month",   value: "1m",       price: 100.000 },
+  { label: "Lifetime",  value: "lifetime", price: 150.000 }
 ];
 
 const PAYMENT = {
