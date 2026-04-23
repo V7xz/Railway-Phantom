@@ -1,13 +1,3 @@
-/**
-=========================================================
- PHANTOM.WTF MONSTER EDITION
- Part 1 / Core System
- Theme: Black + Purple Luxury
- Discord.js v14
- No MongoDB
-=========================================================
-*/
-
 require("dotenv").config();
 
 const fs = require("fs");
@@ -240,87 +230,6 @@ data
 });
 saveAll();
 }
-
-/* =====================================================
- COMMAND BUILD
-===================================================== */
-
-const commands = [
-
-new SlashCommandBuilder()
-.setName("setup-support")
-.setDescription("Send premium store panel"),
-
-new SlashCommandBuilder()
-.setName("dashboard")
-.setDescription("View admin dashboard"),
-
-new SlashCommandBuilder()
-.setName("claim")
-.setDescription("Claim ticket"),
-
-new SlashCommandBuilder()
-.setName("close")
-.setDescription("Close ticket"),
-
-new SlashCommandBuilder()
-.setName("accept")
-.setDescription("Approve current order"),
-
-new SlashCommandBuilder()
-.setName("reject")
-.setDescription("Reject current order"),
-
-new SlashCommandBuilder()
-.setName("orderinfo")
-.setDescription("View current order"),
-
-new SlashCommandBuilder()
-.setName("say")
-.setDescription("Send bot message")
-.addStringOption(o =>
-o.setName("message")
-.setDescription("Message content")
-.setRequired(true)
-),
-
-new SlashCommandBuilder()
-.setName("genkey")
-.setDescription("Generate premium key")
-.addStringOption(o =>
-o.setName("duration")
-.setDescription("1d / 3d / 7d / 30d / life")
-.setRequired(true)
-),
-
-new SlashCommandBuilder()
-.setName("checkkey")
-.setDescription("Check key")
-.addStringOption(o =>
-o.setName("key")
-.setDescription("License key")
-.setRequired(true)
-),
-
-new SlashCommandBuilder()
-.setName("revokekey")
-.setDescription("Revoke key")
-.addStringOption(o =>
-o.setName("key")
-.setDescription("License key")
-.setRequired(true)
-),
-
-new SlashCommandBuilder()
-.setName("resethwid")
-.setDescription("Reset HWID")
-.addStringOption(o =>
-o.setName("key")
-.setDescription("License key")
-.setRequired(true)
-)
-
-].map(x => x.toJSON());
 
 /* =====================================================
  READY
