@@ -1,5 +1,5 @@
 require("dotenv").config();
- 
+
 const {
   Client,
   GatewayIntentBits,
@@ -19,7 +19,10 @@ const {
   Collection,
   AttachmentBuilder
 } = require("discord.js");
- 
+
+const fetch = require("node-fetch");
+
+// ── CLIENT ────────────────────────────────────────────────────────────────────
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -27,7 +30,15 @@ const client = new Client({
     GatewayIntentBits.MessageContent
   ]
 });
- 
+
+// ── ENV ───────────────────────────────────────────────────────────────────────
+const TOKEN         = process.env.TOKEN;
+const CLIENT_ID     = process.env.CLIENT_ID;
+const API_URL       = process.env.API_URL;
+const API_SECRET    = process.env.API_SECRET;
+const ADMIN_ROLE_ID = process.env.ADMIN_ROLE_ID;
+
+// ── SHOP BOT CONFIG ───────────────────────────────────────────────────────────
 const CONFIG = {
   SYMBOL: "$",
   AUTO_CLOSE_HOURS: 24,
@@ -38,7 +49,7 @@ const CONFIG = {
   STAFF_ROLE_NAME: "dev",
   COOLDOWN_MS: 3000,
 };
- 
+
 const orderData         = new Map();
 const activityMap       = new Map();
 const userTickets       = new Map();
@@ -46,7 +57,7 @@ const commandCooldown   = new Collection();
 const ticketMessages    = new Map();
 let   orderCounter      = 1;
 let   transcriptChannelId = null;
- 
+
 const shopItems = [
   {
     id: "roblox_external",
@@ -59,15 +70,15 @@ const shopItems = [
     ]
   }
 ];
- 
+
 const externalProducts = [
   { label: "Roblox [ Lifetime ]", value: "roblox_lifetime", price: 9.99, emoji: "🎮" }
 ];
- 
+
 const scriptProducts = [
   { label: "South Bronx", value: "south_bronx", emoji: "📜" }
 ];
- 
+
 const scriptDurations = [
   { label: "1 Day",     value: "1d",       price: 3.99  },
   { label: "3 Days",    value: "3d",       price: 7.99  },
@@ -75,7 +86,7 @@ const scriptDurations = [
   { label: "1 Month",   value: "1m",       price: 24.99 },
   { label: "Lifetime",  value: "lifetime", price: 39.99 }
 ];
- 
+
 const PAYMENT = {
   qris: {
     label: "QRIS",
@@ -96,40 +107,50 @@ const PAYMENT = {
     instructions: "Send the exact amount in **USDT on TRC20** network only."
   }
 };
- 
+
+// ── KEY BOT CONFIG ────────────────────────────────────────────────────────────
+const SCRIPT_URL = "https://raw.githubusercontent.com/V7xz/Majesty-Obfuscate-v1/refs/heads/main/Majesty%20Store";
+
+// ── PERMISSIONS ───────────────────────────────────────────────────────────────
 const ADMIN_FLAG  = PermissionsBitField.Flags.Administrator;
 const MANAGE_FLAG = PermissionsBitField.Flags.ManageChannels;
- 
+
 const isAdmin = (member) =>
   member.permissions.has(ADMIN_FLAG) || member.permissions.has(MANAGE_FLAG);
- 
+
 const isStaff = (member) => {
   if (isAdmin(member)) return true;
   return member.roles.cache.some(r => r.name === CONFIG.STAFF_ROLE_NAME);
 };
- 
+
+function isAdminByRole(interaction) {
+  if (!ADMIN_ROLE_ID) return true;
+  return interaction.member.roles.cache.has(ADMIN_ROLE_ID);
+}
+
+// ── FORMATTERS ────────────────────────────────────────────────────────────────
 const fmt = {
   price: (n)  => `${CONFIG.SYMBOL}${Number(n).toFixed(2)}`,
   ts:    (ms) => `<t:${Math.floor((ms || Date.now()) / 1000)}:R>`,
   id:    (n)  => `#${String(n).padStart(4, "0")}`
 };
- 
+
 const splitCustomId = (str) => {
   const idx = str.indexOf(":");
   return [str.slice(0, idx), str.slice(idx + 1)];
 };
- 
+
 const getLogChannel = (guild) =>
   guild.channels.cache.find(c => c.name === CONFIG.LOG_CHANNEL_NAME && c.type === ChannelType.GuildText);
- 
+
 const getReviewChannel = (guild) =>
   guild.channels.cache.find(c => c.name === CONFIG.REVIEW_CHANNEL_NAME && c.type === ChannelType.GuildText);
- 
+
 const getTranscriptChannel = (guild) => {
   if (transcriptChannelId) return guild.channels.cache.get(transcriptChannelId) || null;
   return guild.channels.cache.find(c => c.name === CONFIG.TRANSCRIPT_CHANNEL_NAME && c.type === ChannelType.GuildText) || null;
 };
- 
+
 async function safeReply(interaction, payload) {
   try {
     if (interaction.replied || interaction.deferred) {
@@ -140,7 +161,7 @@ async function safeReply(interaction, payload) {
     console.error("[safeReply]", e.message);
   }
 }
- 
+
 function onCooldown(userId) {
   const now  = Date.now();
   const last = commandCooldown.get(userId) || 0;
@@ -148,12 +169,12 @@ function onCooldown(userId) {
   commandCooldown.set(userId, now);
   return false;
 }
- 
+
 function decrementStock(itemName) {
   const item = shopItems.find(i => i.name === itemName);
   if (item) item.stock = Math.max(0, item.stock - 1);
 }
- 
+
 function userOpenTicketCount(userId) {
   const set = userTickets.get(userId);
   if (!set) return 0;
@@ -163,7 +184,7 @@ function userOpenTicketCount(userId) {
   }
   return count;
 }
- 
+
 function statusBadge(s) {
   return {
     pending:         "🟡 Pending",
@@ -174,24 +195,49 @@ function statusBadge(s) {
     cancelled:       "🚫 Cancelled"
   }[s] || s;
 }
- 
+
 function buildStockBar(current, max) {
   const filled = Math.min(10, Math.round((current / max) * 10));
   return "█".repeat(filled) + "░".repeat(10 - filled);
 }
- 
+
 function chunkArray(arr, size) {
   const out = [];
   for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
   return out;
 }
- 
+
+// ── KEY HELPERS ───────────────────────────────────────────────────────────────
+function generateKey() {
+  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  const seg = () =>
+    Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
+  return `${seg()}-${seg()}-${seg()}-${seg()}`;
+}
+
+function parseDurasi(str) {
+  if (!str || str === "perm") return null;
+  const unit = str.slice(-1);
+  const val  = parseInt(str.slice(0, -1));
+  if (unit === "h") return val * 3600;
+  if (unit === "d") return val * 86400;
+  return 86400;
+}
+
+function formatDurasi(detik) {
+  if (!detik) return "Permanent";
+  const jam  = Math.floor(detik / 3600);
+  const hari = Math.floor(jam / 24);
+  if (hari >= 1) return `${hari} hari`;
+  return `${jam} jam`;
+}
+
 // ── TRANSCRIPT ────────────────────────────────────────────────────────────────
 function trackMessage(channelId, author, content) {
   if (!ticketMessages.has(channelId)) ticketMessages.set(channelId, []);
   ticketMessages.get(channelId).push({ author, content, timestamp: new Date().toISOString() });
 }
- 
+
 function buildTranscriptText(channelId, channelName, order) {
   const messages = ticketMessages.get(channelId) || [];
   const lines = [
@@ -216,7 +262,7 @@ function buildTranscriptText(channelId, channelName, order) {
   ];
   return lines.join("\n");
 }
- 
+
 async function sendTranscript(guild, channelId, channelName, closedBy) {
   const transcriptCh = getTranscriptChannel(guild);
   if (!transcriptCh) return;
@@ -243,7 +289,7 @@ async function sendTranscript(guild, channelId, channelName, closedBy) {
   await transcriptCh.send({ embeds: [embed], files: [attachment] }).catch(() => {});
   ticketMessages.delete(channelId);
 }
- 
+
 // ── BUILDERS ──────────────────────────────────────────────────────────────────
 function buildShopEmbed() {
   const e = new EmbedBuilder()
@@ -261,14 +307,14 @@ function buildShopEmbed() {
   });
   return e;
 }
- 
+
 function buildShopRow() {
   return new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId("open_shop") .setLabel("Browse & Buy").setStyle(ButtonStyle.Primary)  .setEmoji("🛍️"),
     new ButtonBuilder().setCustomId("view_stock").setLabel("Live Stock")  .setStyle(ButtonStyle.Secondary).setEmoji("📦")
   );
 }
- 
+
 function buildSupportEmbed() {
   return new EmbedBuilder()
     .setTitle("🎫  SUPPORT")
@@ -278,7 +324,7 @@ function buildSupportEmbed() {
     .setFooter({ text: "Do not abuse the ticket system." })
     .setTimestamp();
 }
- 
+
 function buildSupportRow() {
   return new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId("ticket_support")       .setLabel("Support")       .setStyle(ButtonStyle.Primary).setEmoji("🎫"),
@@ -286,7 +332,7 @@ function buildSupportRow() {
     new ButtonBuilder().setCustomId("ticket_order_script")  .setLabel("Order Script")  .setStyle(ButtonStyle.Secondary).setEmoji("📜")
   );
 }
- 
+
 function buildExternalProductSelect() {
   return new ActionRowBuilder().addComponents(
     new StringSelectMenuBuilder()
@@ -300,7 +346,7 @@ function buildExternalProductSelect() {
       })))
   );
 }
- 
+
 function buildScriptProductSelect() {
   return new ActionRowBuilder().addComponents(
     new StringSelectMenuBuilder()
@@ -313,7 +359,7 @@ function buildScriptProductSelect() {
       })))
   );
 }
- 
+
 function buildScriptDurationSelect(channelId) {
   return new ActionRowBuilder().addComponents(
     new StringSelectMenuBuilder()
@@ -326,7 +372,7 @@ function buildScriptDurationSelect(channelId) {
       })))
   );
 }
- 
+
 function buildExternalPaymentSelect(channelId) {
   return new ActionRowBuilder().addComponents(
     new StringSelectMenuBuilder()
@@ -335,7 +381,7 @@ function buildExternalPaymentSelect(channelId) {
       .addOptions(Object.entries(PAYMENT).map(([key, m]) => ({ label: m.label, value: key, emoji: m.emoji })))
   );
 }
- 
+
 function buildScriptPaymentSelect(channelId) {
   return new ActionRowBuilder().addComponents(
     new StringSelectMenuBuilder()
@@ -344,7 +390,7 @@ function buildScriptPaymentSelect(channelId) {
       .addOptions(Object.entries(PAYMENT).map(([key, m]) => ({ label: m.label, value: key, emoji: m.emoji })))
   );
 }
- 
+
 function buildProductSelect() {
   const options = [];
   shopItems.forEach(item => {
@@ -361,7 +407,7 @@ function buildProductSelect() {
     new StringSelectMenuBuilder().setCustomId("select_item").setPlaceholder("Choose a product and duration...").addOptions(options)
   );
 }
- 
+
 function buildPaymentSelect() {
   return new ActionRowBuilder().addComponents(
     new StringSelectMenuBuilder()
@@ -370,7 +416,7 @@ function buildPaymentSelect() {
       .addOptions(Object.entries(PAYMENT).map(([key, m]) => ({ label: m.label, value: key, emoji: m.emoji })))
   );
 }
- 
+
 function buildOrderEmbed(order) {
   const color =
     order.status === "approved"       ? 0x57f287 :
@@ -391,7 +437,7 @@ function buildOrderEmbed(order) {
     .setFooter({ text: `Order ${fmt.id(order.orderId)}` })
     .setTimestamp();
 }
- 
+
 function buildAdminActionRow(channelId) {
   return new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(`approve_order:${channelId}`).setLabel("Approve")      .setStyle(ButtonStyle.Success)  .setEmoji("✅"),
@@ -399,7 +445,7 @@ function buildAdminActionRow(channelId) {
     new ButtonBuilder().setCustomId(`request_info:${channelId}`) .setLabel("Request Info") .setStyle(ButtonStyle.Secondary).setEmoji("📝")
   );
 }
- 
+
 // ── LOGGING ───────────────────────────────────────────────────────────────────
 async function logEvent(guild, type, data, actor) {
   const ch = getLogChannel(guild);
@@ -420,13 +466,13 @@ async function logEvent(guild, type, data, actor) {
   if (actor) e.addFields({ name: "Actor", value: `<@${actor.id}>`, inline: true });
   ch.send({ embeds: [e] }).catch(() => {});
 }
- 
+
 // ── COMMANDS ──────────────────────────────────────────────────────────────────
 const ADMIN_PERM = PermissionsBitField.Flags.Administrator.toString();
- 
+
 const commands = [
+  // ── Shop Bot Commands ──────────────────────────────────────────────────────
   new SlashCommandBuilder().setName("shop").setDescription("Browse the shop and place an order"),
- 
   new SlashCommandBuilder().setName("setup-support").setDescription("Post the support panel to this channel").setDefaultMemberPermissions(ADMIN_PERM),
   new SlashCommandBuilder().setName("setup-transcript").setDescription("Set this channel as the transcript destination").setDefaultMemberPermissions(ADMIN_PERM),
   new SlashCommandBuilder().setName("dashboard").setDescription("View all active orders").setDefaultMemberPermissions(ADMIN_PERM),
@@ -436,29 +482,76 @@ const commands = [
   new SlashCommandBuilder().setName("accept").setDescription("Approve the payment in this ticket channel").setDefaultMemberPermissions(ADMIN_PERM),
   new SlashCommandBuilder().setName("reject").setDescription("Reject the order in this ticket channel").setDefaultMemberPermissions(ADMIN_PERM),
   new SlashCommandBuilder().setName("say").setDescription("Make the bot send a custom message in this channel").setDefaultMemberPermissions(ADMIN_PERM),
+
+  // ── Key Bot Commands ───────────────────────────────────────────────────────
+  new SlashCommandBuilder()
+    .setName("genkey")
+    .setDescription("Generate key baru")
+    .addStringOption(opt =>
+      opt.setName("durasi")
+        .setDescription("Pilih berapa lama key bertahan (default: 1 hari)")
+        .setRequired(false)
+        .addChoices(
+          { name: "1 Jam",      value: "1h"   },
+          { name: "6 Jam",      value: "6h"   },
+          { name: "12 Jam",     value: "12h"  },
+          { name: "1 Hari",     value: "1d"   },
+          { name: "3 Hari",     value: "3d"   },
+          { name: "7 Hari",     value: "7d"   },
+          { name: "30 Hari",    value: "30d"  },
+          { name: "Permanent",  value: "perm" },
+        )
+    ),
+
+  new SlashCommandBuilder()
+    .setName("revokekey")
+    .setDescription("Hapus / nonaktifkan key")
+    .addStringOption(opt =>
+      opt.setName("key")
+        .setDescription("Key yang mau dihapus (XXXX-XXXX-XXXX-XXXX)")
+        .setRequired(true)
+    ),
+
+  new SlashCommandBuilder()
+    .setName("checkkey")
+    .setDescription("Cek apakah key masih valid")
+    .addStringOption(opt =>
+      opt.setName("key")
+        .setDescription("Key yang mau dicek")
+        .setRequired(true)
+    ),
+
+  new SlashCommandBuilder()
+    .setName("resethwid")
+    .setDescription("Reset HWID key (kalau user ganti PC)")
+    .addStringOption(opt =>
+      opt.setName("key")
+        .setDescription("Key yang mau direset HWIDnya")
+        .setRequired(true)
+    ),
 ].map(c => c.toJSON());
- 
+
 // ── REGISTER COMMANDS ─────────────────────────────────────────────────────────
-const rest = new REST({ version: "10" }).setToken(process.env.TOKEN);
- 
+const rest = new REST({ version: "10" }).setToken(TOKEN);
+
 async function registerCommands() {
   try {
     console.log("🔄 Clearing old commands...");
-    await rest.put(Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID), { body: [] });
+    await rest.put(Routes.applicationGuildCommands(CLIENT_ID, process.env.GUILD_ID), { body: [] });
     console.log("🔄 Registering fresh commands...");
-    await rest.put(Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID), { body: commands });
+    await rest.put(Routes.applicationGuildCommands(CLIENT_ID, process.env.GUILD_ID), { body: commands });
     console.log("✅ Commands registered.");
   } catch (err) {
     console.error("[REGISTER]", err);
   }
 }
- 
+
 // ── READY ─────────────────────────────────────────────────────────────────────
 client.once("ready", async () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
   client.user.setActivity("https://phantomexternal.mysellauth.com/", { type: 0 });
   await registerCommands();
- 
+
   setInterval(async () => {
     const threshold = CONFIG.AUTO_CLOSE_HOURS * 3600 * 1000;
     const now = Date.now();
@@ -477,7 +570,7 @@ client.once("ready", async () => {
     }
   }, 30 * 60 * 1000);
 });
- 
+
 // ── INTERACTION ROUTER ────────────────────────────────────────────────────────
 client.on("interactionCreate", async (interaction) => {
   if (interaction.isModalSubmit()) {
@@ -500,21 +593,23 @@ client.on("interactionCreate", async (interaction) => {
     await safeReply(interaction, { content: "❌ Something went wrong. Try again." });
   }
 });
- 
+
 // ── SLASH HANDLERS ────────────────────────────────────────────────────────────
 async function handleSlash(interaction) {
   const { commandName, guild, member, channel } = interaction;
- 
+
+  // ── Shop Bot Commands ──────────────────────────────────────────────────────
+
   if (commandName === "shop") {
     return interaction.reply({ embeds: [buildShopEmbed()], components: [buildShopRow()], flags: 64 });
   }
- 
+
   if (commandName === "setup-support") {
     if (!isAdmin(member)) return safeReply(interaction, { content: "❌ Admin only." });
     await channel.send({ embeds: [buildSupportEmbed()], components: [buildSupportRow()] });
     return interaction.reply({ content: "✅ Support panel posted.", flags: 64 });
   }
- 
+
   if (commandName === "setup-transcript") {
     if (!isAdmin(member)) return safeReply(interaction, { content: "❌ Admin only." });
     transcriptChannelId = channel.id;
@@ -523,7 +618,7 @@ async function handleSlash(interaction) {
       flags: 64
     });
   }
- 
+
   if (commandName === "dashboard") {
     if (!isAdmin(member)) return safeReply(interaction, { content: "❌ Admin only." });
     const all = [...orderData.entries()];
@@ -535,14 +630,14 @@ async function handleSlash(interaction) {
     if (all.length > 6) e.setFooter({ text: `Showing 6 of ${all.length} orders` });
     return interaction.reply({ embeds: [e], flags: 64 });
   }
- 
+
   if (commandName === "orderinfo") {
     if (!isAdmin(member)) return safeReply(interaction, { content: "❌ Admin only." });
     const order = orderData.get(channel.id);
     if (!order) return safeReply(interaction, { content: "❌ No order attached to this channel." });
     return interaction.reply({ embeds: [buildOrderEmbed(order)], flags: 64 });
   }
- 
+
   if (commandName === "claim") {
     if (!isAdmin(member)) return safeReply(interaction, { content: "❌ Admin only." });
     const data = orderData.get(channel.id);
@@ -551,7 +646,7 @@ async function handleSlash(interaction) {
     await channel.setName(`claimed-${interaction.user.username.slice(0, 20).toLowerCase()}`).catch(() => {});
     return interaction.reply({ embeds: [new EmbedBuilder().setColor(0x5865f2).setDescription(`📌 Claimed by <@${interaction.user.id}>`)] });
   }
- 
+
   if (commandName === "close") {
     if (!isAdmin(member)) return safeReply(interaction, { content: "❌ Admin only." });
     const data = orderData.get(channel.id);
@@ -562,7 +657,7 @@ async function handleSlash(interaction) {
     setTimeout(() => channel.delete().catch(() => {}), 5000);
     return;
   }
- 
+
   if (commandName === "accept") {
     if (!isAdmin(member)) return safeReply(interaction, { content: "❌ Admin only." });
     const data = orderData.get(channel.id);
@@ -579,7 +674,7 @@ async function handleSlash(interaction) {
     await logEvent(guild, "approved", data, interaction.user);
     return interaction.reply({ embeds: [new EmbedBuilder().setColor(0x57f287).setDescription("✅ Approved and customer notified.")], flags: 64 });
   }
- 
+
   if (commandName === "reject") {
     if (!isAdmin(member)) return safeReply(interaction, { content: "❌ Admin only." });
     const data = orderData.get(channel.id);
@@ -591,7 +686,7 @@ async function handleSlash(interaction) {
       )
     );
   }
- 
+
   if (commandName === "say") {
     if (!isAdmin(member)) return safeReply(interaction, { content: "❌ Admin only." });
     return interaction.showModal(
@@ -602,20 +697,145 @@ async function handleSlash(interaction) {
       )
     );
   }
+
+  // ── Key Bot Commands ───────────────────────────────────────────────────────
+
+  if (commandName === "genkey") {
+    if (!isAdminByRole(interaction))
+      return interaction.reply({ content: "Kamu tidak punya izin!", ephemeral: true });
+
+    const durasiStr   = interaction.options.getString("durasi") || "1d";
+    const durasiDetik = parseDurasi(durasiStr);
+    const key         = generateKey();
+
+    try {
+      const res  = await fetch(`${API_URL}/addkey`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ key, duration: durasiDetik, secret: API_SECRET }),
+      });
+      const data = await res.json();
+
+      if (!data.success)
+        return interaction.reply({ content: `Gagal: ${data.reason}`, ephemeral: true });
+
+      const scriptReady = `_G.KEY = "${key}"\nloadstring(game:HttpGet("${SCRIPT_URL}"))()`;
+
+      const expireText = durasiDetik
+        ? `Expired: ${new Date(data.expires).toLocaleString("id-ID")}`
+        : "Key ini tidak akan expired (Permanent)";
+
+      const embed = new EmbedBuilder()
+        .setTitle("Key Berhasil Di-generate!")
+        .setColor(0x00ff99)
+        .addFields(
+          { name: "Key",    value: "```" + key + "```" },
+          { name: "Durasi", value: formatDurasi(durasiDetik), inline: true },
+          { name: "Expired", value: expireText, inline: true },
+          { name: "Script - Copy Paste ke Xeno", value: "```lua\n" + scriptReady + "\n```" },
+        )
+        .setTimestamp()
+        .setFooter({ text: `Di-generate oleh ${interaction.user.tag}` });
+
+      return interaction.reply({ embeds: [embed], ephemeral: true });
+
+    } catch (err) {
+      console.error(err);
+      return interaction.reply({
+        content: "Server tidak bisa dihubungi. Pastikan node server.js dan ngrok jalan!",
+        ephemeral: true,
+      });
+    }
+  }
+
+  if (commandName === "revokekey") {
+    if (!isAdminByRole(interaction))
+      return interaction.reply({ content: "Kamu tidak punya izin!", ephemeral: true });
+
+    const key = interaction.options.getString("key").toUpperCase().trim();
+
+    try {
+      const res  = await fetch(`${API_URL}/revokekey`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ key, secret: API_SECRET }),
+      });
+      const data = await res.json();
+
+      if (!data.success)
+        return interaction.reply({ content: `Gagal hapus key: ${data.reason}`, ephemeral: true });
+
+      return interaction.reply({ content: `Key \`${key}\` berhasil dihapus!`, ephemeral: true });
+    } catch {
+      return interaction.reply({ content: "Server tidak bisa dihubungi!", ephemeral: true });
+    }
+  }
+
+  if (commandName === "checkkey") {
+    const key = interaction.options.getString("key").toUpperCase().trim();
+
+    try {
+      const res  = await fetch(`${API_URL}/verify?key=${key}&hwid=check`);
+      const data = await res.json();
+
+      if (data.valid) {
+        const expireInfo = data.expires
+          ? `Expired: ${new Date(data.expires).toLocaleString("id-ID")}`
+          : "Permanent";
+        return interaction.reply({
+          content: `Key \`${key}\` VALID!\n${expireInfo}`,
+          ephemeral: true,
+        });
+      } else {
+        return interaction.reply({
+          content: `Key \`${key}\` tidak valid\nAlasan: ${data.reason}`,
+          ephemeral: true,
+        });
+      }
+    } catch {
+      return interaction.reply({ content: "Server tidak bisa dihubungi!", ephemeral: true });
+    }
+  }
+
+  if (commandName === "resethwid") {
+    if (!isAdminByRole(interaction))
+      return interaction.reply({ content: "Kamu tidak punya izin!", ephemeral: true });
+
+    const key = interaction.options.getString("key").toUpperCase().trim();
+
+    try {
+      const res  = await fetch(`${API_URL}/resethwid`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ key, secret: API_SECRET }),
+      });
+      const data = await res.json();
+
+      if (!data.success)
+        return interaction.reply({ content: `Gagal reset HWID: ${data.reason}`, ephemeral: true });
+
+      return interaction.reply({
+        content: `HWID key \`${key}\` berhasil direset! User sekarang bisa pakai di PC baru.`,
+        ephemeral: true,
+      });
+    } catch {
+      return interaction.reply({ content: "Server tidak bisa dihubungi!", ephemeral: true });
+    }
+  }
 }
- 
+
 // ── BUTTON HANDLERS ───────────────────────────────────────────────────────────
 async function handleButton(interaction) {
   const { customId, guild, user, member, channel } = interaction;
   activityMap.set(channel.id, Date.now());
- 
+
   if (customId === "open_shop") {
     return interaction.reply({
       embeds: [new EmbedBuilder().setTitle("🛒 Select a Product").setColor(0x2b2d31).setDescription("Pick a product and duration below.")],
       components: [buildProductSelect()], flags: 64
     });
   }
- 
+
   if (customId === "view_stock") {
     const e = new EmbedBuilder().setTitle("📦 Live Stock").setColor(0x2b2d31).setTimestamp();
     shopItems.forEach(item => {
@@ -623,7 +843,7 @@ async function handleButton(interaction) {
     });
     return interaction.reply({ embeds: [e], flags: 64 });
   }
- 
+
   if (customId === "ticket_support") {
     if (userOpenTicketCount(user.id) >= CONFIG.MAX_OPEN_TICKETS_PER_USER) {
       return safeReply(interaction, { content: `❌ You already have **${CONFIG.MAX_OPEN_TICKETS_PER_USER}** open tickets.` });
@@ -646,7 +866,7 @@ async function handleButton(interaction) {
     });
     return interaction.reply({ content: `✅ Support ticket created: ${ch}`, flags: 64 });
   }
- 
+
   if (customId === "ticket_order_external") {
     if (userOpenTicketCount(user.id) >= CONFIG.MAX_OPEN_TICKETS_PER_USER) {
       return safeReply(interaction, { content: `❌ You already have **${CONFIG.MAX_OPEN_TICKETS_PER_USER}** open tickets.` });
@@ -680,8 +900,7 @@ async function handleButton(interaction) {
     });
     return interaction.reply({ content: `✅ Order External ticket created: ${ch}`, flags: 64 });
   }
- 
-  // ── NEW: ORDER SCRIPT BUTTON ──────────────────────────────────────────────
+
   if (customId === "ticket_order_script") {
     if (userOpenTicketCount(user.id) >= CONFIG.MAX_OPEN_TICKETS_PER_USER) {
       return safeReply(interaction, { content: `❌ You already have **${CONFIG.MAX_OPEN_TICKETS_PER_USER}** open tickets.` });
@@ -718,7 +937,7 @@ async function handleButton(interaction) {
     });
     return interaction.reply({ content: `✅ Order Script ticket created: ${ch}`, flags: 64 });
   }
- 
+
   if (customId === "close_support") {
     if (!isAdmin(member)) return safeReply(interaction, { content: "❌ Admin only." });
     trackMessage(channel.id, "SYSTEM", `[CLOSED] Ticket closed by ${interaction.user.tag}`);
@@ -727,11 +946,11 @@ async function handleButton(interaction) {
     setTimeout(() => channel.delete().catch(() => {}), 5000);
     return;
   }
- 
+
   if (customId === "choose_payment") {
     return interaction.reply({ content: "💳 **Select your payment method:**", components: [buildPaymentSelect()], flags: 64 });
   }
- 
+
   if (customId === "paid_btn") {
     const data = orderData.get(channel.id);
     if (!data)                             return safeReply(interaction, { content: "❌ No order found for this channel." });
@@ -752,7 +971,7 @@ async function handleButton(interaction) {
     await logEvent(guild, "paid", data, user);
     return;
   }
- 
+
   if (customId.startsWith("ext_paid_btn:")) {
     const [, targetChannelId] = splitCustomId(customId);
     const data = orderData.get(targetChannelId);
@@ -774,8 +993,7 @@ async function handleButton(interaction) {
     await logEvent(guild, "paid", data, user);
     return;
   }
- 
-  // ── NEW: SCRIPT PAID BUTTON ───────────────────────────────────────────────
+
   if (customId.startsWith("script_paid_btn:")) {
     const [, targetChannelId] = splitCustomId(customId);
     const data = orderData.get(targetChannelId);
@@ -797,7 +1015,7 @@ async function handleButton(interaction) {
     await logEvent(guild, "paid", data, user);
     return;
   }
- 
+
   if (customId.startsWith("approve_order:")) {
     if (!isAdmin(member)) return safeReply(interaction, { content: "❌ Admin only." });
     const [, targetChannelId] = splitCustomId(customId);
@@ -824,7 +1042,7 @@ async function handleButton(interaction) {
     }
     return;
   }
- 
+
   if (customId.startsWith("reject_order:")) {
     if (!isAdmin(member)) return safeReply(interaction, { content: "❌ Admin only." });
     const [, targetChannelId] = splitCustomId(customId);
@@ -834,7 +1052,7 @@ async function handleButton(interaction) {
       )
     );
   }
- 
+
   if (customId.startsWith("request_info:")) {
     if (!isAdmin(member)) return safeReply(interaction, { content: "❌ Admin only." });
     const [, targetChannelId] = splitCustomId(customId);
@@ -846,7 +1064,7 @@ async function handleButton(interaction) {
     }
     return safeReply(interaction, { content: "✅ User notified." });
   }
- 
+
   if (customId.startsWith("leave_review:")) {
     return interaction.showModal(
       new ModalBuilder().setCustomId(`modal_review:${channel.id}`).setTitle("Leave a Review ⭐").addComponents(
@@ -856,16 +1074,16 @@ async function handleButton(interaction) {
     );
   }
 }
- 
+
 // ── SELECT MENU HANDLERS ──────────────────────────────────────────────────────
 async function handleSelect(interaction) {
   const { customId, guild, user, channel } = interaction;
- 
+
   if (customId === "select_external_product") {
     const productValue = interaction.values[0];
     const product = externalProducts.find(p => p.value === productValue);
     if (!product) return safeReply(interaction, { content: "❌ Product not found." });
- 
+
     const orderId = orderCounter++;
     const record = {
       orderId, userId: user.id,
@@ -877,11 +1095,11 @@ async function handleSelect(interaction) {
     orderData.set(channel.id, record);
     activityMap.set(channel.id, Date.now());
     trackMessage(channel.id, user.tag, `[PRODUCT SELECTED] ${product.label} at ${fmt.price(product.price)}`);
- 
+
     const qris   = PAYMENT.qris;
     const paypal = PAYMENT.paypal;
     const crypto = PAYMENT.crypto;
- 
+
     await channel.send({
       embeds: [
         new EmbedBuilder()
@@ -893,7 +1111,7 @@ async function handleSelect(interaction) {
           .setFooter({ text: "After paying, select your method below and click I've Paid." })
       ]
     });
- 
+
     await channel.send({
       embeds: [
         new EmbedBuilder()
@@ -907,7 +1125,7 @@ async function handleSelect(interaction) {
           .setFooter({ text: "Send Friends & Family for PayPal. TRC20 only for Crypto." })
       ]
     });
- 
+
     await channel.send({
       embeds: [
         new EmbedBuilder()
@@ -929,10 +1147,10 @@ async function handleSelect(interaction) {
         )
       ]
     });
- 
+
     return interaction.reply({ content: "✅ Product selected! Please review the payment instructions above.", flags: 64 });
   }
- 
+
   if (customId.startsWith("select_ext_payment:")) {
     const [, targetChannelId] = splitCustomId(customId);
     const data = orderData.get(targetChannelId);
@@ -947,15 +1165,14 @@ async function handleSelect(interaction) {
       flags: 64
     });
   }
- 
-  // ── NEW: SELECT SCRIPT PRODUCT ────────────────────────────────────────────
+
   if (customId === "select_script_product") {
     const productValue = interaction.values[0];
     const product = scriptProducts.find(p => p.value === productValue);
     if (!product) return safeReply(interaction, { content: "❌ Script not found." });
- 
+
     trackMessage(channel.id, user.tag, `[SCRIPT SELECTED] ${product.label}`);
- 
+
     await interaction.reply({
       embeds: [
         new EmbedBuilder()
@@ -977,14 +1194,13 @@ async function handleSelect(interaction) {
     });
     return;
   }
- 
-  // ── NEW: SELECT SCRIPT DURATION ───────────────────────────────────────────
+
   if (customId.startsWith("select_script_duration:")) {
     const [, targetChannelId] = splitCustomId(customId);
     const durationValue = interaction.values[0];
     const duration = scriptDurations.find(d => d.value === durationValue);
     if (!duration) return safeReply(interaction, { content: "❌ Duration not found." });
- 
+
     const orderId = orderCounter++;
     const record = {
       orderId, userId: user.id,
@@ -996,11 +1212,11 @@ async function handleSelect(interaction) {
     orderData.set(targetChannelId, record);
     activityMap.set(targetChannelId, Date.now());
     trackMessage(targetChannelId, user.tag, `[DURATION SELECTED] South Bronx — ${duration.label} at ${fmt.price(duration.price)}`);
- 
+
     const qris   = PAYMENT.qris;
     const paypal = PAYMENT.paypal;
     const crypto = PAYMENT.crypto;
- 
+
     await channel.send({
       embeds: [
         new EmbedBuilder()
@@ -1012,7 +1228,7 @@ async function handleSelect(interaction) {
           .setFooter({ text: "After paying, select your method below and click I've Paid." })
       ]
     });
- 
+
     await channel.send({
       embeds: [
         new EmbedBuilder()
@@ -1026,7 +1242,7 @@ async function handleSelect(interaction) {
           .setFooter({ text: "Send Friends & Family for PayPal. TRC20 only for Crypto." })
       ]
     });
- 
+
     await channel.send({
       embeds: [
         new EmbedBuilder()
@@ -1049,12 +1265,11 @@ async function handleSelect(interaction) {
         )
       ]
     });
- 
+
     await logEvent(channel.guild, "new_order", record, user);
     return interaction.reply({ content: `✅ Duration selected! Please review the payment instructions above.`, flags: 64 });
   }
- 
-  // ── NEW: SELECT SCRIPT PAYMENT ────────────────────────────────────────────
+
   if (customId.startsWith("select_script_payment:")) {
     const [, targetChannelId] = splitCustomId(customId);
     const data = orderData.get(targetChannelId);
@@ -1069,7 +1284,7 @@ async function handleSelect(interaction) {
       flags: 64
     });
   }
- 
+
   if (customId === "select_item") {
     const [itemId, variantValue, price, itemName, variantLabel] = interaction.values[0].split("|");
     const item = shopItems.find(i => i.id === itemId);
@@ -1116,7 +1331,7 @@ async function handleSelect(interaction) {
     await logEvent(guild, "new_order", record, user);
     return interaction.reply({ content: `✅ Order channel created: ${ch}`, flags: 64 });
   }
- 
+
   if (customId === "select_payment") {
     let data = orderData.get(channel.id);
     if (!data || data.userId !== user.id) {
@@ -1142,11 +1357,11 @@ async function handleSelect(interaction) {
     return interaction.reply({ embeds: [e], flags: 64 });
   }
 }
- 
+
 // ── MODAL HANDLERS ────────────────────────────────────────────────────────────
 async function handleModal(interaction) {
   const { customId, guild, user } = interaction;
- 
+
   if (customId.startsWith("modal_say:")) {
     const [, targetChannelId] = splitCustomId(customId);
     const message  = interaction.fields.getTextInputValue("say_message").trim();
@@ -1155,7 +1370,7 @@ async function handleModal(interaction) {
     await targetCh.send({ content: message }).catch(() => {});
     return interaction.reply({ content: "✅ Message sent!", flags: 64 });
   }
- 
+
   if (customId.startsWith("modal_reject:")) {
     const [, targetChannelId] = splitCustomId(customId);
     const reason = interaction.fields.getTextInputValue("reason");
@@ -1174,7 +1389,7 @@ async function handleModal(interaction) {
     await logEvent(guild, "rejected", data, user);
     return interaction.reply({ embeds: [new EmbedBuilder().setColor(0xed4245).setDescription(`❌ Order ${fmt.id(data.orderId)} rejected.`)], flags: 64 });
   }
- 
+
   if (customId.startsWith("modal_review:")) {
     const [, targetChannelId] = splitCustomId(customId);
     const rating    = interaction.fields.getTextInputValue("rating").trim();
@@ -1193,7 +1408,7 @@ async function handleModal(interaction) {
     return interaction.reply({ embeds: [new EmbedBuilder().setColor(0x57f287).setDescription(`✅ Thanks for your review! ${starStr}`)], flags: 64 });
   }
 }
- 
+
 // ── MESSAGE TRACKER ───────────────────────────────────────────────────────────
 client.on("messageCreate", (msg) => {
   if (msg.author.bot) return;
@@ -1211,19 +1426,19 @@ client.on("messageCreate", (msg) => {
     trackMessage(msg.channel.id, `${msg.author.tag}`, msg.content || "[attachment/embed]");
   }
 });
- 
+
 // ── ERROR HANDLERS ────────────────────────────────────────────────────────────
 process.on("unhandledRejection", (reason) => console.error("[unhandledRejection]", reason));
 process.on("uncaughtException",  (err)    => console.error("[uncaughtException]",  err));
- 
+
 // ── LOGIN ─────────────────────────────────────────────────────────────────────
-const MISSING = ["TOKEN", "CLIENT_ID", "GUILD_ID"].filter(k => !process.env[k]);
+const MISSING = ["TOKEN", "CLIENT_ID", "GUILD_ID", "API_URL", "API_SECRET"].filter(k => !process.env[k]);
 if (MISSING.length) {
   console.error(`❌ Missing required environment variables: ${MISSING.join(", ")}`);
   process.exit(1);
 }
- 
-client.login(process.env.TOKEN).catch(err => {
+
+client.login(TOKEN).catch(err => {
   console.error("❌ Failed to login:", err.message);
   process.exit(1);
 });
