@@ -41,6 +41,9 @@ const QRIS_IMAGE = process.env.QRIS_IMAGE || "https://cdn.discordapp.com/attachm
 const PAYPAL_EMAIL = process.env.PAYPAL_EMAIL || "phantom.wtfff@gmail.com";
 const LTC_TEXT = process.env.LTC_TEXT || "Unavailable";
 
+// ── Derived config (not changing anything else) ─────────────────────────────
+const SCRIPT_URL = LOADER_URL;   // used in genkey embed
+
 /* =====================================================
    STATIC CONFIG
 ===================================================== */
@@ -127,8 +130,8 @@ let logChannelId = null;
 let reviewChannelId = null;
 let transcriptChannelId = null;
 
-const ticketMessages = new Map(); // channelId -> array of messages for transcript
-const activityMap = new Map(); // channelId -> last activity timestamp
+const ticketMessages = new Map();
+const activityMap = new Map();
 const commandCooldown = new Collection();
 
 /* =====================================================
@@ -140,6 +143,31 @@ function isAdmin(member) {
     member.id === CONFIG.OWNER_ID ||
     member.roles.cache.some(r => r.name === CONFIG.ADMIN_ROLE_NAME)
   );
+}
+
+// ── ADDED: Role‑based admin check ────────────────────────────────────────
+function isAdminByRole(interaction) {
+  const ADMIN_ROLE_ID = process.env.ADMIN_ROLE_ID;
+  if (!ADMIN_ROLE_ID) return false;               // no role = deny
+  return interaction.member.roles.cache.has(ADMIN_ROLE_ID);
+}
+
+// ── ADDED: Duration helpers (from your original message (11).txt) ────────
+function parseDurasi(str) {
+  if (!str || str === "perm") return null;
+  const unit = str.slice(-1);
+  const val  = parseInt(str.slice(0, -1));
+  if (unit === "h") return val * 3600;
+  if (unit === "d") return val * 86400;
+  return 86400;
+}
+
+function formatDurasi(detik) {
+  if (!detik) return "Permanent";
+  const jam  = Math.floor(detik / 3600);
+  const hari = Math.floor(jam / 24);
+  if (hari >= 1) return `${hari} hari`;
+  return `${jam} jam`;
 }
 
 function randomID(len = 10) {
@@ -457,7 +485,7 @@ client.on("interactionCreate", async (interaction) => {
     if (interaction.isModalSubmit()) return await handleModal(interaction);
   } catch (err) {
     console.error(err);
-    const payload = { content: "❌ Something went wrong.", ephemeral: true };
+    const payload = { content: "❌ Something went wrong.", flags: 64 };
     if (interaction.replied || interaction.deferred) {
       interaction.followUp(payload).catch(() => {});
     } else {
@@ -518,7 +546,7 @@ async function handleSlash(interaction) {
 
   if (commandName === "dashboard") {
     if (!isAdmin(member)) return safeReply(interaction, { content: "No permission." });
-    return interaction.reply({ embeds: [dashboardEmbed(guild)], ephemeral: true });
+    return interaction.reply({ embeds: [dashboardEmbed(guild)], flags: 64 });
   }
 
   if (commandName === "claim") {
@@ -529,7 +557,7 @@ async function handleSlash(interaction) {
     await channel.setName(`claimed-${interaction.user.username.slice(0, 20).toLowerCase()}`).catch(() => {});
     return interaction.reply({
       embeds: [new EmbedBuilder().setColor(COLOR_MAIN).setDescription(`📌 Claimed by <@${interaction.user.id}>`)],
-      ephemeral: true
+      flags: 64
     });
   }
 
@@ -542,7 +570,7 @@ async function handleSlash(interaction) {
     await sendTranscript(guild, channel.id, channel.name, interaction.user.id);
     await interaction.reply({
       embeds: [new EmbedBuilder().setColor(COLOR_GRAY).setDescription("🚫 Ticket closed. Transcript saved. Deleting in 5 seconds...")],
-      ephemeral: true
+      flags: 64
     });
     setTimeout(() => channel.delete().catch(() => {}), 5000);
     return;
@@ -571,8 +599,9 @@ async function handleSlash(interaction) {
     if (data.product === "South Bronx") {
       const key = generateKey();
       const seconds = durationToSeconds(data.duration);
-      // Optional: Register key with API (you can do the same as genkey here or trust staff)
-      // Example: await fetch(...).catch(() => {});
+      // Save the key to local storage so it can be used later (optional but consistent)
+      keys.push({ key, expires: seconds === 0 ? 0 : Date.now() + seconds * 1000, hwid: null, created: Date.now() });
+      saveAll();
       deliveryContent = `Here is your script:\n\`\`\`lua\n_G.KEY="${key}"\nloadstring(game:HttpGet("${LOADER_URL}"))()\n\`\`\``;
     }
     await channel.send({
@@ -620,97 +649,93 @@ async function handleSlash(interaction) {
     return safeReply(interaction, { content: "❌ Rejected." });
   }
 
-  // ── Key Bot Commands ───────────────────────────────────────────────────────
+  // ── Key Bot Commands (NOW LOCAL, NO EXTERNAL API) ──────────────────────
 
-if (commandName === "genkey") {
-  if (!isAdminByRole(interaction))
-    return interaction.reply({ content: "Kamu tidak punya izin!", flags: 64 });
+  if (commandName === "genkey") {
+    if (!isAdmin(member) && !isAdminByRole(interaction))
+      return interaction.reply({ content: "Kamu tidak punya izin!", flags: 64 });
 
-  // 1. Defer immediately to prevent timeout
-  await interaction.deferReply({ flags: 64 });
+    await interaction.deferReply({ flags: 64 });
 
-  const durasiStr   = interaction.options.getString("durasi") || "1d";
-  const durasiDetik = parseDurasi(durasiStr);
-  const key         = generateKey();
+    const durasiStr   = interaction.options.getString("durasi") || "1d";
+    const durasiDetik = parseDurasi(durasiStr);
+    const key         = generateKey();
 
-  try {
-    const url = `${API_URL}/addkey`;
-    console.log(`[GENKEY] Calling: ${url}`);
+    try {
+      // Simpan key ke storage lokal
+      const expires = durasiDetik ? Date.now() + durasiDetik * 1000 : 0; // 0 = permanent
+      keys.push({ key, expires, hwid: null, created: Date.now() });
+      saveAll();
 
-    const res = await fetch(url, {
-      method:  "POST",
-      headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify({ key, duration: durasiDetik, secret: API_SECRET }),
-    });
+      const scriptReady = `_G.KEY = "${key}"\nloadstring(game:HttpGet("${SCRIPT_URL}"))()`;
+      const expireText = durasiDetik
+        ? `Expired: ${new Date(expires).toLocaleString("id-ID")}`
+        : "Key ini tidak akan expired (Permanent)";
 
-    console.log(`[GENKEY] Status: ${res.status}`);
-    const text = await res.text();
-    console.log(`[GENKEY] Response: ${text}`);
+      const embed = new EmbedBuilder()
+        .setTitle("✅ Key Berhasil Di-generate!")
+        .setColor(0x00ff99)
+        .addFields(
+          { name: "Key", value: "```" + key + "```" },
+          { name: "Durasi", value: formatDurasi(durasiDetik), inline: true },
+          { name: "Expired", value: expireText, inline: true },
+          { name: "Script - Copy Paste ke Xeno", value: "```lua\n" + scriptReady + "\n```" }
+        )
+        .setTimestamp()
+        .setFooter({ text: `Di-generate oleh ${interaction.user.tag}` });
 
-    const data = JSON.parse(text);
-
-    if (!data.success)
-      return interaction.editReply({
-        content: `❌ Gagal: ${data.message || data.reason || "Unknown error"}`
-      });
-
-    const scriptReady = `_G.KEY = "${key}"\nloadstring(game:HttpGet("${SCRIPT_URL}"))()`;
-    const expireText = durasiDetik
-      ? `Expired: ${new Date(data.expires).toLocaleString("id-ID")}`
-      : "Key ini tidak akan expired (Permanent)";
-
-    const embed = new EmbedBuilder()
-      .setTitle("✅ Key Berhasil Di-generate!")
-      .setColor(0x00ff99)
-      .addFields(
-        { name: "Key", value: "```" + key + "```" },
-        { name: "Durasi", value: formatDurasi(durasiDetik), inline: true },
-        { name: "Expired", value: expireText, inline: true },
-        { name: "Script - Copy Paste ke Xeno", value: "```lua\n" + scriptReady + "\n```" }
-      )
-      .setTimestamp()
-      .setFooter({ text: `Di-generate oleh ${interaction.user.tag}` });
-
-    return interaction.editReply({ embeds: [embed] });
-
-  } catch (err) {
-    console.error("[GENKEY]", err);
-    return interaction.editReply({
-      content: "❌ Server tidak bisa dihubungi. Cek console untuk detail."
-    });
+      return interaction.editReply({ embeds: [embed] });
+    } catch (err) {
+      console.error("[GENKEY]", err);
+      return interaction.editReply({ content: "❌ Gagal menyimpan key. Cek console." });
+    }
   }
-}
 
   if (commandName === "checkkey") {
-    if (!isAdmin(member)) return safeReply(interaction, { content: "No permission." });
+    if (!isAdmin(member) && !isAdminByRole(interaction))
+      return interaction.reply({ content: "No permission.", flags: 64 });
     const key = options.getString("key");
-    const res = await fetch(`${API_URL}/check?key=${key}&secret=${API_SECRET}`).then(r => r.json()).catch(() => null);
-    return interaction.reply({
-      content: "```json\n" + JSON.stringify(res, null, 2).substring(0, 2000) + "\n```",
-      ephemeral: true
-    });
+    const data = keys.find(k => k.key === key);
+    if (!data) return interaction.reply({ content: "❌ Key not found.", flags: 64 });
+    const now = Date.now();
+    if (data.expires !== 0 && now > data.expires) {
+      keys = keys.filter(k => k.key !== key);
+      saveAll();
+      return interaction.reply({ content: "❌ Key has expired.", flags: 64 });
+    }
+    const embed = new EmbedBuilder()
+      .setColor(COLOR_MAIN)
+      .setTitle("🔑 Key Info")
+      .addFields(
+        { name: "Key", value: `\`${data.key}\`` },
+        { name: "Expires", value: data.expires === 0 ? "Never" : new Date(data.expires).toLocaleString("id-ID"), inline: true },
+        { name: "HWID", value: data.hwid || "Not set", inline: true },
+        { name: "Created", value: new Date(data.created).toLocaleString("id-ID"), inline: true }
+      )
+      .setTimestamp();
+    return interaction.reply({ embeds: [embed], flags: 64 });
   }
 
   if (commandName === "revokekey") {
-    if (!isAdmin(member)) return safeReply(interaction, { content: "No permission." });
+    if (!isAdmin(member) && !isAdminByRole(interaction))
+      return interaction.reply({ content: "No permission.", flags: 64 });
     const key = options.getString("key");
-    await fetch(`${API_URL}/revoke`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ secret: API_SECRET, key })
-    }).catch(() => {});
-    return safeReply(interaction, { content: "✅ Key revoked." });
+    const index = keys.findIndex(k => k.key === key);
+    if (index === -1) return interaction.reply({ content: "❌ Key not found.", flags: 64 });
+    keys.splice(index, 1);
+    saveAll();
+    return interaction.reply({ content: "✅ Key revoked.", flags: 64 });
   }
 
   if (commandName === "resethwid") {
-    if (!isAdmin(member)) return safeReply(interaction, { content: "No permission." });
+    if (!isAdmin(member) && !isAdminByRole(interaction))
+      return interaction.reply({ content: "No permission.", flags: 64 });
     const key = options.getString("key");
-    await fetch(`${API_URL}/resethwid`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ secret: API_SECRET, key })
-    }).catch(() => {});
-    return safeReply(interaction, { content: "✅ HWID reset." });
+    const data = keys.find(k => k.key === key);
+    if (!data) return interaction.reply({ content: "❌ Key not found.", flags: 64 });
+    data.hwid = null;
+    saveAll();
+    return interaction.reply({ content: "✅ HWID reset.", flags: 64 });
   }
 }
 
@@ -730,12 +755,11 @@ async function handleButton(interaction) {
     return interaction.reply({
       content: "Choose product below.",
       components: [new ActionRowBuilder().addComponents(menu)],
-      ephemeral: true
+      flags: 64
     });
   }
 
   if (customId === "open_support") {
-    // Check ticket limit
     const openCount = orders.filter(o => o.userId === user.id && ["payment", "waiting", "approved"].includes(o.status)).length;
     if (openCount >= CONFIG.MAX_OPEN_TICKETS_PER_USER) {
       return safeReply(interaction, { content: `❌ You already have ${CONFIG.MAX_OPEN_TICKETS_PER_USER} open tickets.` });
@@ -786,14 +810,14 @@ async function handleButton(interaction) {
 30 Day — Rp100.000
 Lifetime — Rp150.000
 `);
-    return interaction.reply({ embeds: [embed], ephemeral: true });
+    return interaction.reply({ embeds: [embed], flags: 64 });
   }
 
   if (customId === "close_support") {
     if (!isAdmin(member)) return safeReply(interaction, { content: "No permission." });
     trackMessage(channel.id, "SYSTEM", `[CLOSED] Support ticket closed by ${user.tag}`);
     await sendTranscript(guild, channel.id, channel.name, user.id);
-    await interaction.reply({ content: "🚫 Transcript saved. Deleting in 5 seconds...", ephemeral: true });
+    await interaction.reply({ content: "🚫 Transcript saved. Deleting in 5 seconds...", flags: 64 });
     setTimeout(() => channel.delete().catch(() => {}), 5000);
     return;
   }
@@ -809,7 +833,7 @@ Lifetime — Rp150.000
     data.paidAt = Date.now();
     saveAll();
     trackMessage(ticketId, user.tag, `[PAID] Marked payment as sent`);
-    await interaction.reply({ content: "✅ Payment submitted. Awaiting admin verification.", ephemeral: true });
+    await interaction.reply({ content: "✅ Payment submitted. Awaiting admin verification.", flags: 64 });
 
     const logCh = logChannelId ? guild.channels.cache.get(logChannelId) : null;
     if (logCh) {
@@ -848,7 +872,6 @@ Lifetime — Rp150.000
     return;
   }
 
-  // Admin approve from log channel
   if (customId.startsWith("approve_")) {
     if (!isAdmin(member)) return safeReply(interaction, { content: "No permission." });
     const ticketId = customId.split("_")[1];
@@ -866,7 +889,8 @@ Lifetime — Rp150.000
       let delivery = "";
       if (data.product === "South Bronx") {
         const key = generateKey();
-        // optional API call same as genkey
+        keys.push({ key, expires: durationToSeconds(data.duration) === 0 ? 0 : Date.now() + durationToSeconds(data.duration) * 1000, hwid: null, created: Date.now() });
+        saveAll();
         delivery = `\n\`\`\`lua\n_G.KEY="${key}"\nloadstring(game:HttpGet("${LOADER_URL}"))()\n\`\`\``;
       }
       targetCh.send({
@@ -895,7 +919,6 @@ Lifetime — Rp150.000
     return;
   }
 
-  // Admin reject from log channel
   if (customId.startsWith("reject_")) {
     if (!isAdmin(member)) return safeReply(interaction, { content: "No permission." });
     const ticketId = customId.split("_")[1];
@@ -903,7 +926,6 @@ Lifetime — Rp150.000
     if (!data) return safeReply(interaction, { content: "Order not found." });
     if (data.status === "rejected") return safeReply(interaction, { content: "Already rejected." });
 
-    // Show modal for rejection reason
     return interaction.showModal(
       new ModalBuilder()
         .setCustomId(`modal_reject:${ticketId}`)
@@ -921,7 +943,6 @@ Lifetime — Rp150.000
     );
   }
 
-  // Leave review button
   if (customId.startsWith("leave_review:")) {
     const ticketId = customId.split(":")[1];
     return interaction.showModal(
@@ -975,7 +996,6 @@ async function handleSelect(interaction) {
     };
     const price = priceMap[dur] || 10000;
 
-    // Create order channel
     const ch = await guild.channels.create({
       name: `order-${user.username}`.substring(0, 28).toLowerCase(),
       type: ChannelType.GuildText,
@@ -1001,7 +1021,6 @@ async function handleSelect(interaction) {
     saveAll();
     trackMessage(ch.id, "SYSTEM", `[OPENED] Order #${orderId} for South Bronx (${durationLabel(dur)}) at ${moneyIDR(price)}`);
 
-    // Payment instructions
     const qris = {
       label: "QRIS",
       emoji: "🏦",
@@ -1079,7 +1098,6 @@ async function handleSelect(interaction) {
     return;
   }
 
-  // Payment method selection inside a ticket
   if (customId.startsWith("select_payment:")) {
     const [, ticketId] = customId.split(":");
     const data = findOrder(ticketId);
@@ -1099,7 +1117,7 @@ async function handleSelect(interaction) {
           .setColor(COLOR_GREEN)
           .setDescription(`✅ Payment method set to **${method.emoji} ${method.label}**. Complete your payment and click **I've Paid ✅**.`)
       ],
-      ephemeral: true
+      flags: 64
     });
   }
 }
@@ -1189,7 +1207,7 @@ client.on("messageCreate", (msg) => {
    LOGIN
 ===================================================== */
 
-const missing = ["TOKEN", "CLIENT_ID", "GUILD_ID", "API_URL", "API_SECRET"].filter(k => !process.env[k]);
+const missing = ["TOKEN", "CLIENT_ID", "GUILD_ID"].filter(k => !process.env[k]);
 if (missing.length) {
   console.error(`❌ Missing environment variables: ${missing.join(", ")}`);
   process.exit(1);
