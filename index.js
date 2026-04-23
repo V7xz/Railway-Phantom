@@ -42,8 +42,8 @@ const LTC_TEXT = process.env.LTC_TEXT || "Unavailable";
 
 const CONFIG = {
   BOT_NAME: "Phantom.wtf",
-  OWNER_ID: "1491433868677611591",
-  ADMIN_ROLE_NAME: "Dev",
+  OWNER_ID: "961847981684973569",
+  ADMIN_ROLE_NAME: "dev",
   AUTO_CLOSE_HOURS: 24,
   CURRENCY_RATE: 16000,
   BUYER_ROLE_NAME: "Buyer"
