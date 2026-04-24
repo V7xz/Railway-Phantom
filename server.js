@@ -6,8 +6,8 @@ const app = express();
 app.use(express.json());
 
 /* =====================================================
-   STORAGE — sama persis dengan index.js
-   Baca/tulis dari file data/keys.json yang sama
+   STORAGE — share file yang sama dengan index.js
+   Baca/tulis langsung dari data/keys.json
 ===================================================== */
 
 const DATA_DIR  = path.join(__dirname, "data");
@@ -31,19 +31,18 @@ function writeKeys(data) {
 /* =====================================================
    POST /validate
    Body: { key: string, hwid: string }
-   
-   Logic:
-   1. Key tidak ada → invalid
-   2. Key expired → hapus + invalid
-   3. HWID belum terikat → bind + success
-   4. HWID cocok → success
-   5. HWID tidak cocok → mismatch
+
+   Flow:
+   1. Key tidak ada      → invalid
+   2. Key expired        → hapus otomatis + invalid
+   3. HWID belum terikat → bind HWID + success
+   4. HWID cocok         → update lastSeen & useCount + success
+   5. HWID tidak cocok   → mismatch
 ===================================================== */
 
 app.post("/validate", (req, res) => {
     const { key, hwid } = req.body;
 
-    // Validasi input
     if (!key || !hwid) {
         return res.status(400).json({
             success: false,
@@ -51,7 +50,7 @@ app.post("/validate", (req, res) => {
         });
     }
 
-    let keys = readKeys();
+    const keys  = readKeys();
     const index = keys.findIndex(k => k.key === key);
 
     // Key tidak ditemukan
@@ -65,10 +64,11 @@ app.post("/validate", (req, res) => {
     const data = keys[index];
     const now  = Date.now();
 
-    // Key expired (expires !== 0 berarti punya batas waktu)
+    // Key expired — expires 0 = permanent, tidak pernah expired
     if (data.expires !== 0 && now > data.expires) {
-        keys.splice(index, 1); // hapus key expired
+        keys.splice(index, 1);
         writeKeys(keys);
+        console.log(`[EXPIRED] Key ${key} dihapus otomatis`);
         return res.json({
             success: false,
             message: "Key has expired"
@@ -77,15 +77,13 @@ app.post("/validate", (req, res) => {
 
     // HWID belum terikat — bind sekarang
     if (!data.hwid) {
-        data.hwid      = hwid;
-        data.boundAt   = now;
-        data.lastSeen  = now;
-        data.useCount  = 1;
-        keys[index]    = data;
+        data.hwid     = hwid;
+        data.boundAt  = now;
+        data.lastSeen = now;
+        data.useCount = 1;
+        keys[index]   = data;
         writeKeys(keys);
-
         console.log(`[BIND] Key ${key} → HWID ${hwid}`);
-
         return res.json({
             success: true,
             message: "Key valid + HWID bound"
@@ -94,7 +92,7 @@ app.post("/validate", (req, res) => {
 
     // HWID tidak cocok
     if (data.hwid !== hwid) {
-        console.log(`[MISMATCH] Key ${key} | Expected ${data.hwid} | Got ${hwid}`);
+        console.log(`[MISMATCH] Key ${key} | Expected: ${data.hwid} | Got: ${hwid}`);
         return res.json({
             success: false,
             message: "HWID mismatch"
@@ -114,22 +112,25 @@ app.post("/validate", (req, res) => {
 });
 
 /* =====================================================
-   GET / — Health check
+   GET / — Health check + statistik key
 ===================================================== */
 
 app.get("/", (req, res) => {
-    const keys  = readKeys();
-    const total = keys.length;
-    const bound = keys.filter(k => k.hwid).length;
-    const expired = keys.filter(k => k.expires !== 0 && Date.now() > k.expires).length;
+    const keys    = readKeys();
+    const now     = Date.now();
+    const total   = keys.length;
+    const active  = keys.filter(k => k.expires === 0 || k.expires > now).length;
+    const expired = keys.filter(k => k.expires !== 0 && k.expires < now).length;
+    const bound   = keys.filter(k => !!k.hwid).length;
 
     res.json({
-        status:  "Phantom API running",
+        status: "Phantom API running",
         keys: {
             total,
+            active,
+            expired,
             bound,
-            unbound:  total - bound,
-            expired
+            unbound: total - bound
         }
     });
 });
