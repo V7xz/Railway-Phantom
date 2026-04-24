@@ -1,4 +1,4 @@
-require("./server.js")
+require("./server.js");
 require("dotenv").config();
 
 const fs = require("fs");
@@ -136,6 +136,11 @@ const commandCooldown = new Collection();
    UTILITIES
 ===================================================== */
 
+// 🔄 Re‑read the keys file so HWID updates from server.js are visible
+function refreshKeys() {
+  keys = readJSON(FILES.keys);
+}
+
 function isAdmin(member) {
   return (
     member.id === CONFIG.OWNER_ID ||
@@ -149,17 +154,15 @@ function isAdminByRole(interaction) {
   return interaction.member.roles.cache.has(ADMIN_ROLE_ID);
 }
 
-// ── Unified duration parser (handles hours & days) ───────────────────────
 function parseDuration(val) {
   if (!val || val === "perm") return 0;                 // permanent
   const unit = val.slice(-1);
   const num  = parseInt(val.slice(0, -1));
-  if (unit === "h") return num * 3600;                 // hours to seconds
-  if (unit === "d") return num * 86400;                // days to seconds
+  if (unit === "h") return num * 3600;                 // hours
+  if (unit === "d") return num * 86400;                // days
   return 86400;                                        // default 1 day
 }
 
-// ── Duration label for slash command choices ─────────────────────────────
 function durationLabel(val) {
   if (val === "1h")  return "1 Hour";
   if (val === "3h")  return "3 Hours";
@@ -173,7 +176,6 @@ function durationLabel(val) {
   return "Unknown";
 }
 
-// ── Human‑readable seconds (for embed) ────────────────────────────────────
 function formatDurasi(detik) {
   if (!detik) return "Permanent";
   const jam  = Math.floor(detik / 3600);
@@ -206,8 +208,6 @@ function saveAll() {
 function findOrder(channelId) {
   return orders.find(o => o.channelId === channelId);
 }
-
-// Old durationToSeconds removed, use parseDuration universally instead.
 
 function moneyIDR(n) {
   return `Rp ${Number(n).toLocaleString("id-ID")}`;
@@ -338,6 +338,7 @@ function supportPanel() {
 }
 
 function dashboardEmbed(guild) {
+  refreshKeys(); // latest key stats
   const now = Date.now();
   const totalKeys = keys.length;
   const activeKeys = keys.filter(k => k.expires === 0 || k.expires > now).length;
@@ -430,6 +431,9 @@ const commands = [
     .setName("resethwid")
     .setDescription("Reset HWID")
     .addStringOption(o => o.setName("key").setDescription("Key").setRequired(true)),
+  new SlashCommandBuilder()
+    .setName("keylist")
+    .setDescription("List all keys (paginated)"),
 ].map(x => x.toJSON());
 
 /* =====================================================
@@ -446,6 +450,8 @@ client.once("ready", async () => {
 
   const rest = new REST({ version: "10" }).setToken(TOKEN);
   try {
+    // Clear all old guild commands first, then re‑register the new list
+    await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: [] });
     await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: commands });
     console.log("Slash commands loaded.");
   } catch (err) {
@@ -657,7 +663,7 @@ async function handleSlash(interaction) {
     return safeReply(interaction, { content: "❌ Rejected." });
   }
 
-  // ── Key Bot Commands (LOCAL, no external API) ──────────────────────────
+  // ── Key Bot Commands ───────────────────────────────────────────────────────
 
   if (commandName === "genkey") {
     if (!isAdmin(member) && !isAdminByRole(interaction))
@@ -698,7 +704,7 @@ async function handleSlash(interaction) {
     }
   }
 
-  // ── EXTENDKEY (NEW) ────────────────────────────────────────────────────────
+  // ── EXTENDKEY ────────────────────────────────────────────────────────────────
   if (commandName === "extendkey") {
     if (!isAdmin(member) && !isAdminByRole(interaction))
       return interaction.reply({ content: "No permission.", flags: 64 });
@@ -708,6 +714,7 @@ async function handleSlash(interaction) {
     const addSeconds = parseDuration(durStr);
     if (addSeconds === 0) return interaction.reply({ content: "❌ Invalid duration.", flags: 64 });
 
+    refreshKeys(); // get latest expiry from file (in case it was recently extended)
     const entry = keys.find(k => k.key === key);
     if (!entry) return interaction.reply({ content: "❌ Key not found.", flags: 64 });
     if (entry.expires === 0) {
@@ -734,12 +741,13 @@ async function handleSlash(interaction) {
     return interaction.reply({ embeds: [embed], flags: 64 });
   }
 
-  // ── CHECKKEY (ENHANCED) ────────────────────────────────────────────────────
+  // ── CHECKKEY (now reads fresh data including HWID) ─────────────────────────
   if (commandName === "checkkey") {
     if (!isAdmin(member) && !isAdminByRole(interaction))
       return interaction.reply({ content: "No permission.", flags: 64 });
 
     const key = options.getString("key");
+    refreshKeys();                          // ← latest data from server.js
     const data = keys.find(k => k.key === key);
     if (!data) return interaction.reply({ content: "❌ Key not found.", flags: 64 });
 
@@ -786,6 +794,89 @@ async function handleSlash(interaction) {
     data.hwid = null;
     saveAll();
     return interaction.reply({ content: "✅ HWID reset.", flags: 64 });
+  }
+
+  // ── KEYLIST (new paginated list) ──────────────────────────────────────────
+  if (commandName === "keylist") {
+    if (!isAdmin(member) && !isAdminByRole(interaction))
+      return interaction.reply({ content: "No permission.", flags: 64 });
+
+    refreshKeys();
+    if (keys.length === 0) return interaction.reply({ content: "📭 No keys in database.", flags: 64 });
+
+    // Paginate: 10 keys per page
+    const itemsPerPage = 10;
+    const pages = [];
+    for (let i = 0; i < keys.length; i += itemsPerPage) {
+      pages.push(keys.slice(i, i + itemsPerPage));
+    }
+
+    let currentPage = 0;
+
+    const generateEmbed = (page) => {
+      const now = Date.now();
+      const keyList = pages[page];
+      const embed = new EmbedBuilder()
+        .setColor(COLOR_MAIN)
+        .setTitle(`🔑 Key List (Page ${page + 1}/${pages.length})`)
+        .setFooter({ text: `${keys.length} total keys` });
+
+      keyList.forEach(data => {
+        const isActive = (data.expires === 0 || data.expires > now);
+        const statusIcon = isActive ? "🟢" : "🔴";
+        const expText = data.expires === 0 ? "∞" : new Date(data.expires).toLocaleString("id-ID");
+        embed.addFields({
+          name: `${statusIcon} ${data.key}`,
+          value: `**Expires:** ${expText}\n**HWID:** ${data.hwid || "None"}\n**Created:** ${new Date(data.created).toLocaleString("id-ID")}`,
+          inline: false
+        });
+      });
+
+      return embed;
+    };
+
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId("keylist_prev").setLabel("◀").setStyle(ButtonStyle.Secondary).setDisabled(true),
+      new ButtonBuilder().setCustomId("keylist_next").setLabel("▶").setStyle(ButtonStyle.Secondary).setDisabled(pages.length <= 1)
+    );
+
+    const message = await interaction.reply({
+      embeds: [generateEmbed(0)],
+      components: [row],
+      flags: 64,
+      fetchReply: true
+    });
+
+    if (pages.length <= 1) return; // no pagination needed
+
+    const collector = message.createMessageComponentCollector({ time: 60000 });
+
+    collector.on("collect", async (btnInteraction) => {
+      if (btnInteraction.user.id !== interaction.user.id) {
+        return btnInteraction.reply({ content: "You can't use this.", flags: 64 });
+      }
+
+      if (btnInteraction.customId === "keylist_prev") {
+        currentPage--;
+      } else if (btnInteraction.customId === "keylist_next") {
+        currentPage++;
+      }
+
+      const newRow = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId("keylist_prev").setLabel("◀").setStyle(ButtonStyle.Secondary).setDisabled(currentPage === 0),
+        new ButtonBuilder().setCustomId("keylist_next").setLabel("▶").setStyle(ButtonStyle.Secondary).setDisabled(currentPage === pages.length - 1)
+      );
+
+      await btnInteraction.update({ embeds: [generateEmbed(currentPage)], components: [newRow] });
+    });
+
+    collector.on("end", async () => {
+      try {
+        await message.edit({ components: [] });
+      } catch {}
+    });
+
+    return;
   }
 }
 
@@ -854,10 +945,6 @@ async function handleButton(interaction) {
       .setTitle("💰 Pricing")
       .setDescription(`
 **South Bronx**
-1 Hour — Rp10.000
-3 Hours — Rp20.000
-6 Hours — Rp35.000
-12 Hours — Rp50.000
 1 Day — Rp10.000
 3 Day — Rp20.000
 7 Day — Rp35.000
@@ -1017,6 +1104,7 @@ Lifetime — Rp150.000
 
 /* =====================================================
    SELECT MENU HANDLER
+   (shop: only day options, no hours)
 ===================================================== */
 
 async function handleSelect(interaction) {
@@ -1030,10 +1118,6 @@ async function handleSelect(interaction) {
         .setCustomId("choose_duration")
         .setPlaceholder("Select duration")
         .addOptions([
-          { label: "1 Hour", value: "1h", description: "Rp10.000" },
-          { label: "3 Hours", value: "3h", description: "Rp20.000" },
-          { label: "6 Hours", value: "6h", description: "Rp35.000" },
-          { label: "12 Hours", value: "12h", description: "Rp50.000" },
           { label: "1 Day", value: "1d", description: "Rp10.000" },
           { label: "3 Day", value: "3d", description: "Rp20.000" },
           { label: "7 Day", value: "7d", description: "Rp35.000" },
@@ -1050,7 +1134,6 @@ async function handleSelect(interaction) {
   if (customId === "choose_duration") {
     const dur = interaction.values[0];
     const priceMap = {
-      "1h": 10000, "3h": 20000, "6h": 35000, "12h": 50000,
       "1d": 10000, "3d": 20000, "7d": 35000, "30d": 100000, "perm": 150000
     };
     const price = priceMap[dur] || 10000;
