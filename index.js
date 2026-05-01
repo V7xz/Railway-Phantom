@@ -671,7 +671,8 @@ async function handleSlash(interaction) {
 
     await interaction.deferReply({ flags: 64 });
 
-    const durasiStr   = interaction.options.getString("durasi") || "1d";
+    // 🔧 FIX: option name is "duration", not "durasi"
+    const durasiStr   = interaction.options.getString("duration") || "1d";
     const seconds     = parseDuration(durasiStr);
     const key         = generateKey();
 
