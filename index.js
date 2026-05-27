@@ -407,7 +407,6 @@ function dashboardEmbed(guild) {
     .setTimestamp();
 }
 
-// ── Detailed pricing embed ──────────────────────────────────────────────
 function pricingDetailEmbed() {
   return new EmbedBuilder()
     .setColor(COLOR_MAIN)
@@ -565,8 +564,8 @@ client.on("interactionCreate", async (interaction) => {
       if (onCooldown(interaction.user.id)) return safeReply(interaction, { content: "⏳ Slow down a bit." });
       return await handleButton(interaction);
     }
+    // Select menus – no cooldown to allow quick re‑selects
     if (interaction.isStringSelectMenu()) {
-      if (onCooldown(interaction.user.id)) return safeReply(interaction, { content: "⏳ Slow down a bit." });
       return await handleSelect(interaction);
     }
     if (interaction.isModalSubmit()) return await handleModal(interaction);
@@ -591,7 +590,6 @@ async function handleSlash(interaction) {
   if (commandName === "setup") {
     if (!isAdmin(member)) return safeReply(interaction, { content: "No permission." });
 
-    // Dropdown with Product option added, no legacy button
     const selectMenu = new StringSelectMenuBuilder()
       .setCustomId("shop_category_select")
       .setPlaceholder("📂 Choose a category...")
@@ -1208,7 +1206,7 @@ async function handleSelect(interaction) {
       return resetDropdown(interaction);
     }
 
-    // Product – create ticket and start product flow (like old times)
+    // Product – create ticket and start product flow
     if (choice === "product") {
       const openCount = orders.filter(o => o.userId === user.id && ["payment", "waiting", "approved"].includes(o.status)).length;
       if (openCount >= CONFIG.MAX_OPEN_TICKETS_PER_USER) {
@@ -1216,7 +1214,6 @@ async function handleSelect(interaction) {
         return resetDropdown(interaction);
       }
 
-      // Create order ticket
       const ch = await guild.channels.create({
         name: `order-${user.username}`.substring(0, 28).toLowerCase(),
         type: ChannelType.GuildText,
@@ -1242,7 +1239,6 @@ async function handleSelect(interaction) {
       saveAll();
       trackMessage(ch.id, "SYSTEM", `[OPENED] Product ticket by ${user.tag} – awaiting category selection`);
 
-      // Send category selection menu inside the ticket (Script / External)
       const categoryMenu = new StringSelectMenuBuilder()
         .setCustomId(`choose_category:${ch.id}`)
         .setPlaceholder("📂 Select category...")
@@ -1266,7 +1262,7 @@ async function handleSelect(interaction) {
       return resetDropdown(interaction);
     }
 
-    // Support categories – create a ticket with appropriate name/description
+    // Support categories – create a ticket
     const openCount = orders.filter(o => o.userId === user.id && ["payment", "waiting", "approved"].includes(o.status)).length;
     if (openCount >= CONFIG.MAX_OPEN_TICKETS_PER_USER) {
       await interaction.reply({ content: `❌ You already have ${CONFIG.MAX_OPEN_TICKETS_PER_USER} open tickets.`, flags: 64 });
