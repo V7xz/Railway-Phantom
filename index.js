@@ -40,7 +40,7 @@ const QRIS_IMAGE = process.env.QRIS_IMAGE || "https://cdn.discordapp.com/attachm
 const PAYPAL_EMAIL = process.env.PAYPAL_EMAIL || "phantom.wtfff@gmail.com";
 const LTC_TEXT = process.env.LTC_TEXT || "Unavailable";
 
-const SCRIPT_URL = LOADER_URL;   // used in genkey embed
+const SCRIPT_URL = LOADER_URL;
 
 /* =====================================================
    STATIC CONFIG
@@ -72,6 +72,39 @@ const COLOR_RED = COLORS.red;
 const COLOR_GREEN = COLORS.green;
 const COLOR_YELLOW = COLORS.yellow;
 const COLOR_GRAY = COLORS.gray;
+
+// ── Pricing data (IDR) ──────────────────────────────────────────────────
+const PRICES = {
+  script: {
+    "1d": 12000,
+    "3d": 20000,
+    "7d": 42000,
+    "30d": 80000,
+    "perm": 95000
+  },
+  external: {
+    "perm": 90000
+  }
+};
+
+// ── USD approximations (matching the required display) ─────────────────
+const USD_APPROX = {
+  12000: "0.75",
+  20000: "1.25",
+  42000: "2.60",
+  80000: "5.00",
+  95000: "6.00",
+  90000: "5.60"
+};
+
+function getUSDApprox(idr) {
+  const usd = USD_APPROX[idr];
+  return usd ? `~$${usd} USD` : `~$${(idr / 16000).toFixed(2)} USD`;
+}
+
+function formatPriceIDRUSD(idr) {
+  return `IDR ${idr.toLocaleString("id-ID")} / ${getUSDApprox(idr)}`;
+}
 
 /* =====================================================
    CLIENT
@@ -136,7 +169,6 @@ const commandCooldown = new Collection();
    UTILITIES
 ===================================================== */
 
-// 🔄 Re‑read the keys file so HWID updates from server.js are visible
 function refreshKeys() {
   keys = readJSON(FILES.keys);
 }
@@ -155,12 +187,12 @@ function isAdminByRole(interaction) {
 }
 
 function parseDuration(val) {
-  if (!val || val === "perm") return 0;                 // permanent
+  if (!val || val === "perm") return 0;
   const unit = val.slice(-1);
   const num  = parseInt(val.slice(0, -1));
-  if (unit === "h") return num * 3600;                 // hours
-  if (unit === "d") return num * 86400;                // days
-  return 86400;                                        // default 1 day
+  if (unit === "h") return num * 3600;
+  if (unit === "d") return num * 86400;
+  return 86400;
 }
 
 function durationLabel(val) {
@@ -262,7 +294,7 @@ function buildTranscriptText(channelId, channelName, order) {
     `Channel ID: ${channelId}`,
     order
       ? [`Order ID  : #${order.orderId}`, `Product   : ${order.product} (${order.variant || "N/A"})`,
-         `Price     : ${moneyIDR(order.price)}`, `Customer  : ${order.userId}`,
+         `Price     : ${moneyIDR(order.price)} (${getUSDApprox(order.price)})`, `Customer  : ${order.userId}`,
          `Status    : ${statusBadge(order.status)}`, `Payment   : ${order.paymentMethod || "N/A"}`,
          `Opened    : ${new Date(order.created).toUTCString()}`].join("\n")
       : `Type      : Support Ticket`,
@@ -312,20 +344,30 @@ async function sendTranscript(guild, channelId, channelName, closedBy) {
    EMBED BUILDERS
 ===================================================== */
 
-function mainPanel() {
+function setupPanel() {
   return new EmbedBuilder()
     .setColor(COLOR_MAIN)
-    .setTitle("👻 Phantom.wtf")
+    .setTitle("🎫 Phantom.wtf — Support & Info")
     .setDescription(`
-Premium Roblox Script Store
+**Ticket Support / Dukungan Tiket**
+Select the category that best fits your issue from the dropdown menu below. /
+Silakan pilih kategori yang paling sesuai dengan masalah Anda dari menu dropdown di bawah ini.
 
-> South Bronx Available
-> Instant Support
-> Fast Delivery
-> Secure Payments
+❓ **Help with issues / Bantuan dengan Masalah**
+People who are experiencing problems with using the software or have other questions /
+Orang yang mengalami masalah dalam menggunakan perangkat lunak atau memiliki pertanyaan lain.
 
-Choose option below.
-`)
+💳 **Payment Inquiries / Pertanyaan Pembayaran**
+Inquiries regarding payments through other channels or general payment issues /
+Pertanyaan mengenai pembayaran melalui jalur lain atau masalah pembayaran umum.
+
+🎁 **Gift Card (PayPal by Rewarble)**
+Purchase a $5 PayPal gift card by Rewarble and send it to us /
+Beli PayPal gift card senilai $5 melalui Rewarble lalu kirimkan kepada kami.
+
+💰 **Pricing / Harga**
+View our product prices directly. / Lihat daftar harga produk kami secara langsung.
+    `)
     .setImage(BANNER_URL || null)
     .setFooter({ text: "phantomexternal.mysellauth.com" });
 }
@@ -338,7 +380,7 @@ function supportPanel() {
 }
 
 function dashboardEmbed(guild) {
-  refreshKeys(); // latest key stats
+  refreshKeys();
   const now = Date.now();
   const totalKeys = keys.length;
   const activeKeys = keys.filter(k => k.expires === 0 || k.expires > now).length;
@@ -358,6 +400,28 @@ function dashboardEmbed(guild) {
       { name: "Orders", value: `📦 Total: ${totalOrders}\n💳 Pending Payment: ${paymentOrders}\n⏳ Awaiting Approval: ${pendingOrders}`, inline: true },
       { name: "Completed", value: `✅ Approved: ${approvedOrders}\n❌ Rejected: ${rejectedOrders}\n🚫 Closed: ${closedOrders}`, inline: true }
     )
+    .setTimestamp();
+}
+
+// ── Detailed pricing embed (used in /setup dropdown) ─────────────────
+function pricingDetailEmbed() {
+  return new EmbedBuilder()
+    .setColor(COLOR_MAIN)
+    .setTitle("💰 Product Pricing")
+    .setDescription("All prices are listed in **IDR** with approximate **USD** equivalents.\n")
+    .addFields(
+      { name: "📜 Script — South Bronx", value: `
+• 1 Day: ${formatPriceIDRUSD(PRICES.script["1d"])}
+• 3 Days: ${formatPriceIDRUSD(PRICES.script["3d"])}
+• 7 Days: ${formatPriceIDRUSD(PRICES.script["7d"])}
+• 30 Days: ${formatPriceIDRUSD(PRICES.script["30d"])}
+• Lifetime: ${formatPriceIDRUSD(PRICES.script["perm"])}
+      `, inline: false },
+      { name: "🎮 External — Roblox External", value: `
+• Lifetime Only: ${formatPriceIDRUSD(PRICES.external["perm"])}
+      `, inline: false }
+    )
+    .setFooter({ text: "Prices are subject to change. Confirm final amount before paying." })
     .setTimestamp();
 }
 
@@ -454,7 +518,6 @@ client.once("ready", async () => {
 
   const rest = new REST({ version: "10" }).setToken(TOKEN);
   try {
-    // Clear all old guild commands first, then re‑register the new list
     await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: [] });
     await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: commands });
     console.log("Slash commands loaded.");
@@ -521,24 +584,26 @@ client.on("interactionCreate", async (interaction) => {
 async function handleSlash(interaction) {
   const { commandName, member, channel, guild, options } = interaction;
 
-  // ── Shop Bot Commands ──────────────────────────────────────────────────────
-
   if (commandName === "setup") {
     if (!isAdmin(member)) return safeReply(interaction, { content: "No permission." });
-    // NEW: Select Menu for category (Product)
+
     const selectMenu = new StringSelectMenuBuilder()
       .setCustomId("shop_category_select")
-      .setPlaceholder("📂 Select a category...")
+      .setPlaceholder("📂 Choose a category...")
       .addOptions([
-        { label: "Product", description: "Browse & purchase products", emoji: "🛒", value: "shop_product" }
+        { label: "Help with issues / Bantuan", description: "Problems with the software", emoji: "❓", value: "support_help" },
+        { label: "Payment Inquiries / Pembayaran", description: "Payment questions", emoji: "💳", value: "support_payment" },
+        { label: "Gift Card (PayPal Rewarble)", description: "Purchase a gift card", emoji: "🎁", value: "support_gift" },
+        { label: "Pricing / Harga", description: "View product prices", emoji: "💰", value: "pricing" }
       ]);
+
     const row1 = new ActionRowBuilder().addComponents(selectMenu);
     const row2 = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId("open_support").setLabel("Support").setStyle(ButtonStyle.Primary).setEmoji("🎫"),
-      new ButtonBuilder().setCustomId("view_prices").setLabel("Pricing").setStyle(ButtonStyle.Secondary).setEmoji("💰")
+      new ButtonBuilder().setCustomId("open_support").setLabel("Open Support (legacy)").setStyle(ButtonStyle.Primary).setEmoji("🎫")
     );
-    await channel.send({ embeds: [mainPanel()], components: [row1, row2] });
-    return safeReply(interaction, { content: "✅ Shop panel sent." });
+
+    await channel.send({ embeds: [setupPanel()], components: [row1, row2] });
+    return safeReply(interaction, { content: "✅ Setup panel sent." });
   }
 
   if (commandName === "setupsupport") {
@@ -603,7 +668,6 @@ async function handleSlash(interaction) {
     return;
   }
 
-  // ── ENHANCED /say COMMAND ─────────────────────────────────────────────────
   if (commandName === "say") {
     if (!isAdmin(member)) return safeReply(interaction, { content: "No permission." });
     const msg = options.getString("message");
@@ -913,8 +977,6 @@ async function handleButton(interaction) {
   const { customId, guild, user, member, channel } = interaction;
   activityMap.set(channel.id, Date.now());
 
-  // (buy_script button removed – now handled by select menu)
-
   if (customId === "open_support") {
     const openCount = orders.filter(o => o.userId === user.id && ["payment", "waiting", "approved"].includes(o.status)).length;
     if (openCount >= CONFIG.MAX_OPEN_TICKETS_PER_USER) {
@@ -955,18 +1017,8 @@ async function handleButton(interaction) {
   }
 
   if (customId === "view_prices") {
-    const embed = new EmbedBuilder()
-      .setColor(COLOR_MAIN)
-      .setTitle("💰 Pricing")
-      .setDescription(`
-**South Bronx**
-1 Day — Rp10.000
-3 Day — Rp20.000
-7 Day — Rp35.000
-30 Day — Rp100.000
-Lifetime — Rp150.000
-`);
-    return interaction.reply({ embeds: [embed], flags: 64 });
+    // Updated to show the same detailed pricing
+    return interaction.reply({ embeds: [pricingDetailEmbed()], flags: 64 });
   }
 
   if (customId === "close_support") {
@@ -1119,94 +1171,120 @@ Lifetime — Rp150.000
 
 /* =====================================================
    SELECT MENU HANDLER
-   (NEW: Shop category select and product ticket flow)
+   (Includes reset fix and ticket/no-ticket logic)
 ===================================================== */
+
+async function resetDropdown(interaction) {
+  try {
+    const freshMenu = new StringSelectMenuBuilder()
+      .setCustomId("shop_category_select")
+      .setPlaceholder("📂 Choose a category...")
+      .addOptions([
+        { label: "Help with issues / Bantuan", description: "Problems with the software", emoji: "❓", value: "support_help" },
+        { label: "Payment Inquiries / Pembayaran", description: "Payment questions", emoji: "💳", value: "support_payment" },
+        { label: "Gift Card (PayPal Rewarble)", description: "Purchase a gift card", emoji: "🎁", value: "support_gift" },
+        { label: "Pricing / Harga", description: "View product prices", emoji: "💰", value: "pricing" }
+      ]);
+    await interaction.message.edit({ components: [new ActionRowBuilder().addComponents(freshMenu), ...interaction.message.components.slice(1)] });
+  } catch (e) {
+    console.error("[resetDropdown]", e.message);
+  }
+}
 
 async function handleSelect(interaction) {
   const { customId, guild, user, channel } = interaction;
   activityMap.set(channel.id, Date.now());
 
-  // ── Shop category selection (Product) ─────────────────────────────────────
+  // ── Main shop category select ────────────────────────────────────────────
   if (customId === "shop_category_select") {
     const choice = interaction.values[0];
-    if (choice === "shop_product") {
-      // Check ticket limit
-      const openCount = orders.filter(o => o.userId === user.id && ["payment", "waiting", "approved"].includes(o.status)).length;
-      if (openCount >= CONFIG.MAX_OPEN_TICKETS_PER_USER) {
-        return interaction.reply({ content: `❌ You already have ${CONFIG.MAX_OPEN_TICKETS_PER_USER} open tickets.`, flags: 64 });
-      }
 
-      // Create a new private order ticket
-      const ch = await guild.channels.create({
-        name: `order-${user.username}`.substring(0, 28).toLowerCase(),
-        type: ChannelType.GuildText,
-        permissionOverwrites: [
-          { id: guild.id, deny: [PermissionsBitField.Flags.ViewChannel] },
-          { id: user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages] }
-        ]
-      });
-
-      // Save a placeholder order (no price/duration yet)
-      const orderId = orders.length + 1;
-      orders.push({
-        orderId,
-        channelId: ch.id,
-        userId: user.id,
-        product: null,
-        variant: null,
-        duration: null,
-        price: null,
-        status: "category_selection",   // special status
-        created: Date.now(),
-        paymentMethod: null
-      });
-      saveAll();
-      trackMessage(ch.id, "SYSTEM", `[OPENED] Product ticket by ${user.tag} – awaiting category selection`);
-
-      // Send the category selection prompt inside the ticket
-      const categoryMenu = new StringSelectMenuBuilder()
-        .setCustomId(`choose_category:${ch.id}`)
-        .setPlaceholder("📂 Select category...")
-        .addOptions([
-          { label: "Script", description: "South Bronx script", emoji: "📜", value: "script" },
-          { label: "External", description: "External cheat", emoji: "🎮", value: "external" }
-        ]);
-
-      await ch.send({
-        content: `<@${user.id}>`,
-        embeds: [
-          new EmbedBuilder()
-            .setColor(COLOR_MAIN)
-            .setTitle("🛒 Product Selection")
-            .setDescription("Welcome! Please choose a category below to continue.")
-        ],
-        components: [new ActionRowBuilder().addComponents(categoryMenu)]
-      });
-
-      return interaction.reply({ content: `✅ Order ticket created: ${ch}`, flags: 64 });
+    if (choice === "pricing") {
+      // Show detailed pricing embed, no ticket
+      await interaction.reply({ embeds: [pricingDetailEmbed()], flags: 64 });
+      return resetDropdown(interaction);
     }
-    return interaction.reply({ content: "Unknown option.", flags: 64 });
+
+    // Support categories – create a ticket
+    const openCount = orders.filter(o => o.userId === user.id && ["payment", "waiting", "approved"].includes(o.status)).length;
+    if (openCount >= CONFIG.MAX_OPEN_TICKETS_PER_USER) {
+      await interaction.reply({ content: `❌ You already have ${CONFIG.MAX_OPEN_TICKETS_PER_USER} open tickets.`, flags: 64 });
+      return resetDropdown(interaction);
+    }
+
+    let ticketName, categoryTitle, categoryDescription;
+    if (choice === "support_help") {
+      ticketName = `help-${user.username}`.substring(0, 32).toLowerCase();
+      categoryTitle = "❓ Help & Questions";
+      categoryDescription = "You have opened a **Help** ticket. Describe your issue or question below.";
+    } else if (choice === "support_payment") {
+      ticketName = `payment-${user.username}`.substring(0, 32).toLowerCase();
+      categoryTitle = "💳 Payment Inquiries";
+      categoryDescription = "You have opened a **Payment Inquiries** ticket. Please provide details about your payment or issue.";
+    } else if (choice === "support_gift") {
+      ticketName = `gift-${user.username}`.substring(0, 32).toLowerCase();
+      categoryTitle = "🎁 Gift Card Purchase";
+      categoryDescription = "You have selected to purchase a **$5 PayPal gift card by Rewarble**. Please send the gift card to us in this ticket.";
+    } else {
+      return interaction.reply({ content: "Unknown option.", flags: 64 });
+    }
+
+    const ch = await guild.channels.create({
+      name: ticketName,
+      type: ChannelType.GuildText,
+      permissionOverwrites: [
+        { id: guild.id, deny: [PermissionsBitField.Flags.ViewChannel] },
+        { id: user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages] }
+      ]
+    });
+
+    orders.push({
+      channelId: ch.id,
+      userId: user.id,
+      product: categoryTitle,
+      status: "open",
+      created: Date.now()
+    });
+    saveAll();
+    trackMessage(ch.id, "SYSTEM", `[OPENED] ${categoryTitle} ticket by ${user.tag}`);
+
+    await ch.send({
+      content: `<@${user.id}>`,
+      embeds: [
+        new EmbedBuilder()
+          .setColor(COLOR_MAIN)
+          .setTitle(categoryTitle)
+          .setDescription(categoryDescription)
+      ],
+      components: [
+        new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId("close_support").setLabel("Close Ticket").setStyle(ButtonStyle.Danger).setEmoji("🔒")
+        )
+      ]
+    });
+
+    await interaction.reply({ content: `✅ Ticket created: ${ch}`, flags: 64 });
+    return resetDropdown(interaction);
   }
 
-  // ── Category selection inside the ticket ─────────────────────────────────
+  // ── Category selection inside a product order ticket ────────────────────
   if (customId.startsWith("choose_category:")) {
     const [, ticketId] = customId.split(":");
     const data = findOrder(ticketId);
     if (!data || data.userId !== user.id) return safeReply(interaction, { content: "Not your order." });
 
-    const category = interaction.values[0]; // "script" or "external"
-
+    const category = interaction.values[0];
     if (category === "script") {
-      // Show all duration options (Day/Lifetime)
+      // Updated to use new prices and show IDR/USD in descriptions
       const durMenu = new StringSelectMenuBuilder()
         .setCustomId(`choose_duration:${ticketId}`)
         .setPlaceholder("Select duration")
         .addOptions([
-          { label: "1 Day",     value: "1d",   description: "Rp10.000" },
-          { label: "3 Day",     value: "3d",   description: "Rp20.000" },
-          { label: "7 Day",     value: "7d",   description: "Rp35.000" },
-          { label: "30 Day",    value: "30d",  description: "Rp100.000" },
-          { label: "Lifetime",  value: "perm", description: "Rp150.000" }
+          { label: "1 Day",     value: "1d",   description: formatPriceIDRUSD(PRICES.script["1d"]) },
+          { label: "3 Days",    value: "3d",   description: formatPriceIDRUSD(PRICES.script["3d"]) },
+          { label: "7 Days",    value: "7d",   description: formatPriceIDRUSD(PRICES.script["7d"]) },
+          { label: "30 Days",   value: "30d",  description: formatPriceIDRUSD(PRICES.script["30d"]) },
+          { label: "Lifetime",  value: "perm", description: formatPriceIDRUSD(PRICES.script["perm"]) }
         ]);
       await interaction.update({
         embeds: [
@@ -1217,19 +1295,17 @@ async function handleSelect(interaction) {
         ],
         components: [new ActionRowBuilder().addComponents(durMenu)]
       });
-      // Update product name
       data.product = "South Bronx";
       saveAll();
       return;
     }
 
     if (category === "external") {
-      // External – only Lifetime
       const durMenu = new StringSelectMenuBuilder()
         .setCustomId(`choose_duration:${ticketId}`)
         .setPlaceholder("Select duration")
         .addOptions([
-          { label: "Lifetime", value: "perm", description: "Rp150.000" }
+          { label: "Lifetime", value: "perm", description: formatPriceIDRUSD(PRICES.external["perm"]) }
         ]);
       await interaction.update({
         embeds: [
@@ -1244,32 +1320,27 @@ async function handleSelect(interaction) {
       saveAll();
       return;
     }
-
     return safeReply(interaction, { content: "Invalid category." });
   }
 
-  // ── Duration selection (inside ticket) → finalize order and show payment ──
+  // ── Duration selection inside a product order ticket ─────────────────────
   if (customId.startsWith("choose_duration:")) {
     const [, ticketId] = customId.split(":");
     const data = findOrder(ticketId);
     if (!data || data.userId !== user.id) return safeReply(interaction, { content: "Not your order." });
 
     const dur = interaction.values[0];
-    const priceMap = {
-      "1d": 10000, "3d": 20000, "7d": 35000, "30d": 100000, "perm": 150000
-    };
-    const price = priceMap[dur] || 10000;
+    const price = data.product === "South Bronx" ? PRICES.script[dur] : PRICES.external[dur];
+    if (!price) return safeReply(interaction, { content: "Invalid duration." });
 
-    // Update order data
     data.duration = dur;
     data.variant = durationLabel(dur);
     data.price = price;
     data.status = "payment";
     saveAll();
 
-    trackMessage(ticketId, user.tag, `[DURATION SELECTED] ${data.product} – ${durationLabel(dur)} at ${moneyIDR(price)}`);
+    trackMessage(ticketId, user.tag, `[DURATION SELECTED] ${data.product} – ${durationLabel(dur)} at ${moneyIDR(price)} (${getUSDApprox(price)})`);
 
-    // Send payment instructions (same as original choose_duration flow)
     const qris = {
       label: "QRIS",
       emoji: "🏦",
@@ -1299,7 +1370,9 @@ async function handleSelect(interaction) {
           .setColor(COLOR_MAIN)
           .setTitle("🏦 QRIS Payment")
           .setDescription(qris.instructions)
-          .addFields({ name: "Amount", value: moneyIDR(price), inline: true })
+          .addFields(
+            { name: "Amount", value: `${moneyIDR(price)}\n${getUSDApprox(price)}`, inline: true }
+          )
           .setImage(qris.image)
       ]
     });
@@ -1325,7 +1398,7 @@ async function handleSelect(interaction) {
           .addFields(
             { name: "Product", value: data.product, inline: true },
             { name: "Duration", value: durationLabel(dur), inline: true },
-            { name: "Price", value: moneyIDR(price), inline: true },
+            { name: "Price", value: `${moneyIDR(price)}\n${getUSDApprox(price)}`, inline: true },
             { name: "Status", value: statusBadge("payment"), inline: true }
           )
       ],
@@ -1346,11 +1419,10 @@ async function handleSelect(interaction) {
       ]
     });
 
-    // Confirm selection to user (ephemeral)
     return interaction.update({ content: "✅ Duration selected! Check the payment instructions above.", embeds: [], components: [] });
   }
 
-  // ── Payment method selection (already existed) ───────────────────────────
+  // ── Payment method selection ──────────────────────────────────────────
   if (customId.startsWith("select_payment:")) {
     const [, ticketId] = customId.split(":");
     const data = findOrder(ticketId);
@@ -1418,20 +1490,20 @@ async function handleModal(interaction) {
     const data = findOrder(ticketId);
     const reviewCh = reviewChannelId ? guild.channels.cache.get(reviewChannelId) : guild.channels.cache.find(c => c.name === "reviews");
     trackMessage(ticketId, user.tag, `[REVIEW] ${stars}/5 — ${reviewText}`);
+
     if (reviewCh) {
-      reviewCh.send({
-        embeds: [
-          new EmbedBuilder()
-            .setColor(COLOR_YELLOW)
-            .setTitle(`${starStr} New Review`)
-            .setDescription(`> ${reviewText}`)
-            .addFields(
-              { name: "From", value: `<@${user.id}>`, inline: true },
-              { name: "Product", value: data?.product || "Unknown", inline: true }
-            )
-            .setTimestamp()
-        ]
-      });
+      const reviewEmbed = new EmbedBuilder()
+        .setColor(COLOR_YELLOW)
+        .setTitle(`${starStr} New Review`)
+        .setDescription(`> ${reviewText}`)
+        .addFields(
+          { name: "Reviewer", value: `<@${user.id}>`, inline: true },
+          { name: "Product", value: data?.product || "Unknown", inline: true }
+        )
+        .setFooter({ text: `Order #${data?.orderId || "N/A"}` })
+        .setTimestamp();
+
+      reviewCh.send({ embeds: [reviewEmbed] }).catch(() => {});
     }
     return safeReply(interaction, { content: `✅ Thanks for your review! ${starStr}` });
   }
@@ -1447,6 +1519,9 @@ client.on("messageCreate", (msg) => {
   if (
     name.startsWith("order-") ||
     name.startsWith("support-") ||
+    name.startsWith("help-") ||
+    name.startsWith("payment-") ||
+    name.startsWith("gift-") ||
     name.startsWith("claimed-") ||
     name.startsWith("approved-") ||
     name.startsWith("rejected-")
