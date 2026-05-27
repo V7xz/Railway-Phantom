@@ -376,8 +376,12 @@ const commands = [
   new SlashCommandBuilder().setName("close").setDescription("Close current ticket (generates transcript)"),
   new SlashCommandBuilder()
     .setName("say")
-    .setDescription("Bot send custom message")
-    .addStringOption(o => o.setName("message").setDescription("Message").setRequired(true)),
+    .setDescription("Bot send custom message (advanced)")
+    .addStringOption(o => o.setName("message").setDescription("Message content").setRequired(true))
+    .addChannelOption(o => o.setName("channel").setDescription("Channel to send to (default: current)").setRequired(false))
+    .addBooleanOption(o => o.setName("embed").setDescription("Send as embed?").setRequired(false))
+    .addStringOption(o => o.setName("title").setDescription("Embed title (if embed=true)").setRequired(false))
+    .addStringOption(o => o.setName("color").setDescription("Embed color hex (e.g., #57f287)").setRequired(false)),
   new SlashCommandBuilder()
     .setName("accept")
     .setDescription("Approve payment in this ticket"),
@@ -521,12 +525,19 @@ async function handleSlash(interaction) {
 
   if (commandName === "setup") {
     if (!isAdmin(member)) return safeReply(interaction, { content: "No permission." });
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId("buy_script").setLabel("Buy Script").setStyle(ButtonStyle.Success).setEmoji("🛒"),
+    // NEW: Select Menu for category (Product)
+    const selectMenu = new StringSelectMenuBuilder()
+      .setCustomId("shop_category_select")
+      .setPlaceholder("📂 Select a category...")
+      .addOptions([
+        { label: "Product", description: "Browse & purchase products", emoji: "🛒", value: "shop_product" }
+      ]);
+    const row1 = new ActionRowBuilder().addComponents(selectMenu);
+    const row2 = new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId("open_support").setLabel("Support").setStyle(ButtonStyle.Primary).setEmoji("🎫"),
       new ButtonBuilder().setCustomId("view_prices").setLabel("Pricing").setStyle(ButtonStyle.Secondary).setEmoji("💰")
     );
-    await channel.send({ embeds: [mainPanel()], components: [row] });
+    await channel.send({ embeds: [mainPanel()], components: [row1, row2] });
     return safeReply(interaction, { content: "✅ Shop panel sent." });
   }
 
@@ -592,11 +603,26 @@ async function handleSlash(interaction) {
     return;
   }
 
+  // ── ENHANCED /say COMMAND ─────────────────────────────────────────────────
   if (commandName === "say") {
     if (!isAdmin(member)) return safeReply(interaction, { content: "No permission." });
     const msg = options.getString("message");
-    await channel.send({ content: msg });
-    return safeReply(interaction, { content: "✅ Message sent." });
+    const targetChannel = options.getChannel("channel") || channel;
+    const asEmbed = options.getBoolean("embed") || false;
+    const embedTitle = options.getString("title") || null;
+    const colorHex = options.getString("color") || null;
+
+    if (asEmbed) {
+      const embed = new EmbedBuilder()
+        .setDescription(msg)
+        .setColor(colorHex ? parseInt(colorHex.replace("#", ""), 16) : COLOR_MAIN);
+      if (embedTitle) embed.setTitle(embedTitle);
+      embed.setTimestamp();
+      await targetChannel.send({ embeds: [embed] });
+    } else {
+      await targetChannel.send({ content: msg });
+    }
+    return safeReply(interaction, { content: `✅ Message sent to ${targetChannel}.` });
   }
 
   if (commandName === "accept") {
@@ -671,7 +697,6 @@ async function handleSlash(interaction) {
 
     await interaction.deferReply({ flags: 64 });
 
-    // 🔧 FIX: option name is "duration", not "durasi"
     const durasiStr   = interaction.options.getString("duration") || "1d";
     const seconds     = parseDuration(durasiStr);
     const key         = generateKey();
@@ -715,7 +740,7 @@ async function handleSlash(interaction) {
     const addSeconds = parseDuration(durStr);
     if (addSeconds === 0) return interaction.reply({ content: "❌ Invalid duration.", flags: 64 });
 
-    refreshKeys(); // get latest expiry from file (in case it was recently extended)
+    refreshKeys();
     const entry = keys.find(k => k.key === key);
     if (!entry) return interaction.reply({ content: "❌ Key not found.", flags: 64 });
     if (entry.expires === 0) {
@@ -742,13 +767,13 @@ async function handleSlash(interaction) {
     return interaction.reply({ embeds: [embed], flags: 64 });
   }
 
-  // ── CHECKKEY (now reads fresh data including HWID) ─────────────────────────
+  // ── CHECKKEY ─────────────────────────────────────────────────────────────────
   if (commandName === "checkkey") {
     if (!isAdmin(member) && !isAdminByRole(interaction))
       return interaction.reply({ content: "No permission.", flags: 64 });
 
     const key = options.getString("key");
-    refreshKeys();                          // ← latest data from server.js
+    refreshKeys();
     const data = keys.find(k => k.key === key);
     if (!data) return interaction.reply({ content: "❌ Key not found.", flags: 64 });
 
@@ -797,7 +822,7 @@ async function handleSlash(interaction) {
     return interaction.reply({ content: "✅ HWID reset.", flags: 64 });
   }
 
-  // ── KEYLIST (new paginated list) ──────────────────────────────────────────
+  // ── KEYLIST ─────────────────────────────────────────────────────────────────
   if (commandName === "keylist") {
     if (!isAdmin(member) && !isAdminByRole(interaction))
       return interaction.reply({ content: "No permission.", flags: 64 });
@@ -805,7 +830,6 @@ async function handleSlash(interaction) {
     refreshKeys();
     if (keys.length === 0) return interaction.reply({ content: "📭 No keys in database.", flags: 64 });
 
-    // Paginate: 10 keys per page
     const itemsPerPage = 10;
     const pages = [];
     for (let i = 0; i < keys.length; i += itemsPerPage) {
@@ -848,7 +872,7 @@ async function handleSlash(interaction) {
       fetchReply: true
     });
 
-    if (pages.length <= 1) return; // no pagination needed
+    if (pages.length <= 1) return;
 
     const collector = message.createMessageComponentCollector({ time: 60000 });
 
@@ -889,17 +913,7 @@ async function handleButton(interaction) {
   const { customId, guild, user, member, channel } = interaction;
   activityMap.set(channel.id, Date.now());
 
-  if (customId === "buy_script") {
-    const menu = new StringSelectMenuBuilder()
-      .setCustomId("choose_product")
-      .setPlaceholder("Select product")
-      .addOptions([{ label: "South Bronx", description: "Premium Roblox Script", emoji: "👻", value: "southbronx" }]);
-    return interaction.reply({
-      content: "Choose product below.",
-      components: [new ActionRowBuilder().addComponents(menu)],
-      flags: 64
-    });
-  }
+  // (buy_script button removed – now handled by select menu)
 
   if (customId === "open_support") {
     const openCount = orders.filter(o => o.userId === user.id && ["payment", "waiting", "approved"].includes(o.status)).length;
@@ -1105,65 +1119,157 @@ Lifetime — Rp150.000
 
 /* =====================================================
    SELECT MENU HANDLER
-   (shop: only day options, no hours)
+   (NEW: Shop category select and product ticket flow)
 ===================================================== */
 
 async function handleSelect(interaction) {
   const { customId, guild, user, channel } = interaction;
   activityMap.set(channel.id, Date.now());
 
-  if (customId === "choose_product") {
-    const chosen = interaction.values[0];
-    if (chosen === "southbronx") {
-      const durMenu = new StringSelectMenuBuilder()
-        .setCustomId("choose_duration")
-        .setPlaceholder("Select duration")
-        .addOptions([
-          { label: "1 Day", value: "1d", description: "Rp10.000" },
-          { label: "3 Day", value: "3d", description: "Rp20.000" },
-          { label: "7 Day", value: "7d", description: "Rp35.000" },
-          { label: "30 Day", value: "30d", description: "Rp100.000" },
-          { label: "Lifetime", value: "perm", description: "Rp150.000" }
-        ]);
-      return interaction.update({
-        content: "Select duration for **South Bronx**:",
-        components: [new ActionRowBuilder().addComponents(durMenu)]
+  // ── Shop category selection (Product) ─────────────────────────────────────
+  if (customId === "shop_category_select") {
+    const choice = interaction.values[0];
+    if (choice === "shop_product") {
+      // Check ticket limit
+      const openCount = orders.filter(o => o.userId === user.id && ["payment", "waiting", "approved"].includes(o.status)).length;
+      if (openCount >= CONFIG.MAX_OPEN_TICKETS_PER_USER) {
+        return interaction.reply({ content: `❌ You already have ${CONFIG.MAX_OPEN_TICKETS_PER_USER} open tickets.`, flags: 64 });
+      }
+
+      // Create a new private order ticket
+      const ch = await guild.channels.create({
+        name: `order-${user.username}`.substring(0, 28).toLowerCase(),
+        type: ChannelType.GuildText,
+        permissionOverwrites: [
+          { id: guild.id, deny: [PermissionsBitField.Flags.ViewChannel] },
+          { id: user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages] }
+        ]
       });
+
+      // Save a placeholder order (no price/duration yet)
+      const orderId = orders.length + 1;
+      orders.push({
+        orderId,
+        channelId: ch.id,
+        userId: user.id,
+        product: null,
+        variant: null,
+        duration: null,
+        price: null,
+        status: "category_selection",   // special status
+        created: Date.now(),
+        paymentMethod: null
+      });
+      saveAll();
+      trackMessage(ch.id, "SYSTEM", `[OPENED] Product ticket by ${user.tag} – awaiting category selection`);
+
+      // Send the category selection prompt inside the ticket
+      const categoryMenu = new StringSelectMenuBuilder()
+        .setCustomId(`choose_category:${ch.id}`)
+        .setPlaceholder("📂 Select category...")
+        .addOptions([
+          { label: "Script", description: "South Bronx script", emoji: "📜", value: "script" },
+          { label: "External", description: "External cheat", emoji: "🎮", value: "external" }
+        ]);
+
+      await ch.send({
+        content: `<@${user.id}>`,
+        embeds: [
+          new EmbedBuilder()
+            .setColor(COLOR_MAIN)
+            .setTitle("🛒 Product Selection")
+            .setDescription("Welcome! Please choose a category below to continue.")
+        ],
+        components: [new ActionRowBuilder().addComponents(categoryMenu)]
+      });
+
+      return interaction.reply({ content: `✅ Order ticket created: ${ch}`, flags: 64 });
     }
+    return interaction.reply({ content: "Unknown option.", flags: 64 });
   }
 
-  if (customId === "choose_duration") {
+  // ── Category selection inside the ticket ─────────────────────────────────
+  if (customId.startsWith("choose_category:")) {
+    const [, ticketId] = customId.split(":");
+    const data = findOrder(ticketId);
+    if (!data || data.userId !== user.id) return safeReply(interaction, { content: "Not your order." });
+
+    const category = interaction.values[0]; // "script" or "external"
+
+    if (category === "script") {
+      // Show all duration options (Day/Lifetime)
+      const durMenu = new StringSelectMenuBuilder()
+        .setCustomId(`choose_duration:${ticketId}`)
+        .setPlaceholder("Select duration")
+        .addOptions([
+          { label: "1 Day",     value: "1d",   description: "Rp10.000" },
+          { label: "3 Day",     value: "3d",   description: "Rp20.000" },
+          { label: "7 Day",     value: "7d",   description: "Rp35.000" },
+          { label: "30 Day",    value: "30d",  description: "Rp100.000" },
+          { label: "Lifetime",  value: "perm", description: "Rp150.000" }
+        ]);
+      await interaction.update({
+        embeds: [
+          new EmbedBuilder()
+            .setColor(COLOR_MAIN)
+            .setTitle("📜 Script – South Bronx")
+            .setDescription("Select a duration below.")
+        ],
+        components: [new ActionRowBuilder().addComponents(durMenu)]
+      });
+      // Update product name
+      data.product = "South Bronx";
+      saveAll();
+      return;
+    }
+
+    if (category === "external") {
+      // External – only Lifetime
+      const durMenu = new StringSelectMenuBuilder()
+        .setCustomId(`choose_duration:${ticketId}`)
+        .setPlaceholder("Select duration")
+        .addOptions([
+          { label: "Lifetime", value: "perm", description: "Rp150.000" }
+        ]);
+      await interaction.update({
+        embeds: [
+          new EmbedBuilder()
+            .setColor(COLOR_MAIN)
+            .setTitle("🎮 External – Roblox External")
+            .setDescription("Only lifetime option available.")
+        ],
+        components: [new ActionRowBuilder().addComponents(durMenu)]
+      });
+      data.product = "Roblox External";
+      saveAll();
+      return;
+    }
+
+    return safeReply(interaction, { content: "Invalid category." });
+  }
+
+  // ── Duration selection (inside ticket) → finalize order and show payment ──
+  if (customId.startsWith("choose_duration:")) {
+    const [, ticketId] = customId.split(":");
+    const data = findOrder(ticketId);
+    if (!data || data.userId !== user.id) return safeReply(interaction, { content: "Not your order." });
+
     const dur = interaction.values[0];
     const priceMap = {
       "1d": 10000, "3d": 20000, "7d": 35000, "30d": 100000, "perm": 150000
     };
     const price = priceMap[dur] || 10000;
 
-    const ch = await guild.channels.create({
-      name: `order-${user.username}`.substring(0, 28).toLowerCase(),
-      type: ChannelType.GuildText,
-      permissionOverwrites: [
-        { id: guild.id, deny: [PermissionsBitField.Flags.ViewChannel] },
-        { id: user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages] }
-      ]
-    });
-
-    const orderId = orders.length + 1;
-    orders.push({
-      orderId,
-      channelId: ch.id,
-      userId: user.id,
-      product: "South Bronx",
-      variant: durationLabel(dur),
-      duration: dur,
-      price,
-      status: "payment",
-      created: Date.now(),
-      paymentMethod: null
-    });
+    // Update order data
+    data.duration = dur;
+    data.variant = durationLabel(dur);
+    data.price = price;
+    data.status = "payment";
     saveAll();
-    trackMessage(ch.id, "SYSTEM", `[OPENED] Order #${orderId} for South Bronx (${durationLabel(dur)}) at ${moneyIDR(price)}`);
 
+    trackMessage(ticketId, user.tag, `[DURATION SELECTED] ${data.product} – ${durationLabel(dur)} at ${moneyIDR(price)}`);
+
+    // Send payment instructions (same as original choose_duration flow)
     const qris = {
       label: "QRIS",
       emoji: "🏦",
@@ -1182,6 +1288,9 @@ async function handleSelect(interaction) {
       instructions: "Send to LTC address.",
       address: LTC_TEXT
     };
+
+    const ch = guild.channels.cache.get(ticketId);
+    if (!ch) return safeReply(interaction, { content: "Ticket channel not found." });
 
     await ch.send({
       content: `<@${user.id}>`,
@@ -1211,10 +1320,10 @@ async function handleSelect(interaction) {
       embeds: [
         new EmbedBuilder()
           .setColor(COLOR_YELLOW)
-          .setTitle(`🛒 Order #${orderId} — South Bronx`)
+          .setTitle(`🛒 Order #${data.orderId} — ${data.product}`)
           .setDescription(`**1.** Select payment method below\n**2.** Pay using instructions above\n**3.** Click **I've Paid ✅**`)
           .addFields(
-            { name: "Product", value: "South Bronx", inline: true },
+            { name: "Product", value: data.product, inline: true },
             { name: "Duration", value: durationLabel(dur), inline: true },
             { name: "Price", value: moneyIDR(price), inline: true },
             { name: "Status", value: statusBadge("payment"), inline: true }
@@ -1223,7 +1332,7 @@ async function handleSelect(interaction) {
       components: [
         new ActionRowBuilder().addComponents(
           new StringSelectMenuBuilder()
-            .setCustomId(`select_payment:${ch.id}`)
+            .setCustomId(`select_payment:${ticketId}`)
             .setPlaceholder("Choose payment method")
             .addOptions([
               { label: "QRIS", value: "qris", emoji: "🏦" },
@@ -1232,15 +1341,16 @@ async function handleSelect(interaction) {
             ])
         ),
         new ActionRowBuilder().addComponents(
-          new ButtonBuilder().setCustomId(`paid_${ch.id}`).setLabel("I've Paid ✅").setStyle(ButtonStyle.Success)
+          new ButtonBuilder().setCustomId(`paid_${ticketId}`).setLabel("I've Paid ✅").setStyle(ButtonStyle.Success)
         )
       ]
     });
 
-    await interaction.update({ content: `✅ Order channel created: ${ch}`, components: [], embeds: [] });
-    return;
+    // Confirm selection to user (ephemeral)
+    return interaction.update({ content: "✅ Duration selected! Check the payment instructions above.", embeds: [], components: [] });
   }
 
+  // ── Payment method selection (already existed) ───────────────────────────
   if (customId.startsWith("select_payment:")) {
     const [, ticketId] = customId.split(":");
     const data = findOrder(ticketId);
