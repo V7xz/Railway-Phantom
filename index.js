@@ -36,11 +36,11 @@ const CLIENT_ID = process.env.CLIENT_ID;
 const GUILD_ID = process.env.GUILD_ID;
 const LOADER_URL = process.env.LOADER_URL || "";
 const BANNER_URL = process.env.BANNER_URL || "";
-const QRIS_IMAGE = process.env.QRIS_IMAGE || "https://cdn.discordapp.com/attachments/1491728132661842061/1491880425923153991/Qris_gw.png";
+const QRIS_IMAGE = process.env.QRIS_IMAGE || "https://cdn.discordapp.com/attachments/1491728132661842061/1509192479906463826/04892FED-AE6F-469C-BAF6-BE2FBA1E57D7.jpg?ex=6a184886&is=6a16f706&hm=a74b14de9a8142ef50ec51cfac390ca9a77d4d7cb856b0a7fba2213e08e21972&";
 const PAYPAL_EMAIL = process.env.PAYPAL_EMAIL || "phantom.wtfff@gmail.com";
 const LTC_TEXT = process.env.LTC_TEXT || "Unavailable";
 
-const SCRIPT_URL = LOADER_URL;
+const SCRIPT_URL = LOADER_URL;   // used in genkey embed
 
 /* =====================================================
    STATIC CONFIG
@@ -362,8 +362,12 @@ Inquiries regarding payments through other channels or general payment issues /
 Pertanyaan mengenai pembayaran melalui jalur lain atau masalah pembayaran umum.
 
 🎁 **Gift Card (PayPal by Rewarble)**
-Purchase a $5 PayPal gift card by Rewarble and send it to us /
-Beli PayPal gift card senilai $5 melalui Rewarble lalu kirimkan kepada kami.
+Purchase a $6 PayPal gift card by Rewarble and send it to us /
+Beli PayPal gift card senilai $6 melalui Rewarble lalu kirimkan kepada kami.
+
+🛒 **Product / Produk**
+Purchase a script or external product directly. /
+Beli script atau produk eksternal secara langsung.
 
 💰 **Pricing / Harga**
 View our product prices directly. / Lihat daftar harga produk kami secara langsung.
@@ -403,7 +407,7 @@ function dashboardEmbed(guild) {
     .setTimestamp();
 }
 
-// ── Detailed pricing embed (used in /setup dropdown) ─────────────────
+// ── Detailed pricing embed ──────────────────────────────────────────────
 function pricingDetailEmbed() {
   return new EmbedBuilder()
     .setColor(COLOR_MAIN)
@@ -587,6 +591,7 @@ async function handleSlash(interaction) {
   if (commandName === "setup") {
     if (!isAdmin(member)) return safeReply(interaction, { content: "No permission." });
 
+    // Dropdown with Product option added, no legacy button
     const selectMenu = new StringSelectMenuBuilder()
       .setCustomId("shop_category_select")
       .setPlaceholder("📂 Choose a category...")
@@ -594,15 +599,13 @@ async function handleSlash(interaction) {
         { label: "Help with issues / Bantuan", description: "Problems with the software", emoji: "❓", value: "support_help" },
         { label: "Payment Inquiries / Pembayaran", description: "Payment questions", emoji: "💳", value: "support_payment" },
         { label: "Gift Card (PayPal Rewarble)", description: "Purchase a gift card", emoji: "🎁", value: "support_gift" },
+        { label: "Product / Produk", description: "Purchase a script or external product", emoji: "🛒", value: "product" },
         { label: "Pricing / Harga", description: "View product prices", emoji: "💰", value: "pricing" }
       ]);
 
-    const row1 = new ActionRowBuilder().addComponents(selectMenu);
-    const row2 = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId("open_support").setLabel("Open Support (legacy)").setStyle(ButtonStyle.Primary).setEmoji("🎫")
-    );
+    const row = new ActionRowBuilder().addComponents(selectMenu);
 
-    await channel.send({ embeds: [setupPanel()], components: [row1, row2] });
+    await channel.send({ embeds: [setupPanel()], components: [row] });
     return safeReply(interaction, { content: "✅ Setup panel sent." });
   }
 
@@ -1017,7 +1020,6 @@ async function handleButton(interaction) {
   }
 
   if (customId === "view_prices") {
-    // Updated to show the same detailed pricing
     return interaction.reply({ embeds: [pricingDetailEmbed()], flags: 64 });
   }
 
@@ -1183,9 +1185,10 @@ async function resetDropdown(interaction) {
         { label: "Help with issues / Bantuan", description: "Problems with the software", emoji: "❓", value: "support_help" },
         { label: "Payment Inquiries / Pembayaran", description: "Payment questions", emoji: "💳", value: "support_payment" },
         { label: "Gift Card (PayPal Rewarble)", description: "Purchase a gift card", emoji: "🎁", value: "support_gift" },
+        { label: "Product / Produk", description: "Purchase a script or external product", emoji: "🛒", value: "product" },
         { label: "Pricing / Harga", description: "View product prices", emoji: "💰", value: "pricing" }
       ]);
-    await interaction.message.edit({ components: [new ActionRowBuilder().addComponents(freshMenu), ...interaction.message.components.slice(1)] });
+    await interaction.message.edit({ components: [new ActionRowBuilder().addComponents(freshMenu)] });
   } catch (e) {
     console.error("[resetDropdown]", e.message);
   }
@@ -1199,13 +1202,71 @@ async function handleSelect(interaction) {
   if (customId === "shop_category_select") {
     const choice = interaction.values[0];
 
+    // Pricing – no ticket, show embed
     if (choice === "pricing") {
-      // Show detailed pricing embed, no ticket
       await interaction.reply({ embeds: [pricingDetailEmbed()], flags: 64 });
       return resetDropdown(interaction);
     }
 
-    // Support categories – create a ticket
+    // Product – create ticket and start product flow (like old times)
+    if (choice === "product") {
+      const openCount = orders.filter(o => o.userId === user.id && ["payment", "waiting", "approved"].includes(o.status)).length;
+      if (openCount >= CONFIG.MAX_OPEN_TICKETS_PER_USER) {
+        await interaction.reply({ content: `❌ You already have ${CONFIG.MAX_OPEN_TICKETS_PER_USER} open tickets.`, flags: 64 });
+        return resetDropdown(interaction);
+      }
+
+      // Create order ticket
+      const ch = await guild.channels.create({
+        name: `order-${user.username}`.substring(0, 28).toLowerCase(),
+        type: ChannelType.GuildText,
+        permissionOverwrites: [
+          { id: guild.id, deny: [PermissionsBitField.Flags.ViewChannel] },
+          { id: user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages] }
+        ]
+      });
+
+      const orderId = orders.length + 1;
+      orders.push({
+        orderId,
+        channelId: ch.id,
+        userId: user.id,
+        product: null,
+        variant: null,
+        duration: null,
+        price: null,
+        status: "category_selection",
+        created: Date.now(),
+        paymentMethod: null
+      });
+      saveAll();
+      trackMessage(ch.id, "SYSTEM", `[OPENED] Product ticket by ${user.tag} – awaiting category selection`);
+
+      // Send category selection menu inside the ticket (Script / External)
+      const categoryMenu = new StringSelectMenuBuilder()
+        .setCustomId(`choose_category:${ch.id}`)
+        .setPlaceholder("📂 Select category...")
+        .addOptions([
+          { label: "Script", description: "South Bronx script", emoji: "📜", value: "script" },
+          { label: "External", description: "External cheat", emoji: "🎮", value: "external" }
+        ]);
+
+      await ch.send({
+        content: `<@${user.id}>`,
+        embeds: [
+          new EmbedBuilder()
+            .setColor(COLOR_MAIN)
+            .setTitle("🛒 Product Selection")
+            .setDescription("Welcome! Please choose a category below to continue.")
+        ],
+        components: [new ActionRowBuilder().addComponents(categoryMenu)]
+      });
+
+      await interaction.reply({ content: `✅ Product ticket created: ${ch}`, flags: 64 });
+      return resetDropdown(interaction);
+    }
+
+    // Support categories – create a ticket with appropriate name/description
     const openCount = orders.filter(o => o.userId === user.id && ["payment", "waiting", "approved"].includes(o.status)).length;
     if (openCount >= CONFIG.MAX_OPEN_TICKETS_PER_USER) {
       await interaction.reply({ content: `❌ You already have ${CONFIG.MAX_OPEN_TICKETS_PER_USER} open tickets.`, flags: 64 });
@@ -1224,7 +1285,7 @@ async function handleSelect(interaction) {
     } else if (choice === "support_gift") {
       ticketName = `gift-${user.username}`.substring(0, 32).toLowerCase();
       categoryTitle = "🎁 Gift Card Purchase";
-      categoryDescription = "You have selected to purchase a **$5 PayPal gift card by Rewarble**. Please send the gift card to us in this ticket.";
+      categoryDescription = "You have selected to purchase a **$6 PayPal gift card by Rewarble**. Please send the gift card to us in this ticket.";
     } else {
       return interaction.reply({ content: "Unknown option.", flags: 64 });
     }
@@ -1275,7 +1336,6 @@ async function handleSelect(interaction) {
 
     const category = interaction.values[0];
     if (category === "script") {
-      // Updated to use new prices and show IDR/USD in descriptions
       const durMenu = new StringSelectMenuBuilder()
         .setCustomId(`choose_duration:${ticketId}`)
         .setPlaceholder("Select duration")
