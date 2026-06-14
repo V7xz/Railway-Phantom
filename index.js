@@ -44,7 +44,7 @@ const LTC_TEXT = process.env.LTC_TEXT || "Unavailable";
 const SCRIPT_LOADERS = {
   killaura: process.env.LOADER_KILLAURA || LOADER_URL || "https://raw.githubusercontent.com/V7xz/Phantom-1.0/refs/heads/main/Phantom",
   combat:   process.env.LOADER_COMBAT   || LOADER_URL || "https://raw.githubusercontent.com/V7xz/Phantom-1.0/refs/heads/main/Phantom",
-  autofarm: process.env.LOADER_AUTOFARM || LOADER_URL || "https://raw.githubusercontent.com/V7xz/Phantom-1.0/refs/heads/main/Phantom"
+  autofarm: process.env.LOADER_AUTOFARM || LOADER_URL || "https://raw.githubusercontent.com/V7xz/Autocook/refs/heads/main/Autocook?token=GHSAT0AAAAAAD6DMJOSSYOBUGF5IO7MSJCG2RO3RLQ"
 };
 
 /* =====================================================
