@@ -40,7 +40,12 @@ const QRIS_IMAGE = process.env.QRIS_IMAGE || "https://cdn.discordapp.com/attachm
 const PAYPAL_EMAIL = process.env.PAYPAL_EMAIL || "phantom.wtfff@gmail.com";
 const LTC_TEXT = process.env.LTC_TEXT || "Unavailable";
 
-const SCRIPT_URL = LOADER_URL;   // used in genkey embed
+// ── Per‑product loader URLs (edit later) ───────────────────────────
+const SCRIPT_LOADERS = {
+  killaura: process.env.LOADER_KILLAURA || LOADER_URL || "https://raw.githubusercontent.com/V7xz/Phantom-1.0/refs/heads/main/Phantom",
+  combat:   process.env.LOADER_COMBAT   || LOADER_URL || "https://raw.githubusercontent.com/V7xz/Phantom-1.0/refs/heads/main/Phantom",
+  autofarm: process.env.LOADER_AUTOFARM || LOADER_URL || "https://raw.githubusercontent.com/V7xz/Phantom-1.0/refs/heads/main/Phantom"
+};
 
 /* =====================================================
    STATIC CONFIG
@@ -75,26 +80,46 @@ const COLOR_GRAY = COLORS.gray;
 
 // ── Pricing data (IDR) ──────────────────────────────────────────────────
 const PRICES = {
-  script: {
+  killaura: {
+    "1d": 15000,
+    "3d": 30000,
+    "7d": 60000,
+    "30d": 120000
+  },
+  combat: {
     "1d": 12000,
-    "3d": 20000,
-    "7d": 42000,
+    "3d": 25000,
+    "7d": 50000,
     "30d": 80000,
-    "perm": 95000
+    "perm": 100000
+  },
+  autofarm: {
+    "1d": 10000,
+    "3d": 20000,
+    "7d": 40000,
+    "30d": 80000,
+    "perm": 100000
   },
   external: {
-    "perm": 90000
+    "perm": 110000
   }
 };
 
 // ── USD approximations (matching the required display) ─────────────────
 const USD_APPROX = {
+  10000: "0.63",
   12000: "0.75",
+  15000: "0.94",
   20000: "1.25",
-  42000: "2.60",
+  25000: "1.56",
+  30000: "1.88",
+  40000: "2.50",
+  50000: "3.13",
+  60000: "3.75",
   80000: "5.00",
-  95000: "6.00",
-  90000: "5.60"
+  100000: "6.25",
+  110000: "6.88",
+  120000: "7.50"
 };
 
 function getUSDApprox(idr) {
@@ -104,6 +129,15 @@ function getUSDApprox(idr) {
 
 function formatPriceIDRUSD(idr) {
   return `IDR ${idr.toLocaleString("id-ID")} / ${getUSDApprox(idr)}`;
+}
+
+// ── Helper to map product name to price key ─────────────────────────────
+function getProductKey(productName) {
+  if (productName === "Kill Aura") return "killaura";
+  if (productName === "Combat (Silent Aim)") return "combat";
+  if (productName === "Auto Farm") return "autofarm";
+  if (productName === "Roblox External") return "external";
+  return null;
 }
 
 /* =====================================================
@@ -203,7 +237,7 @@ function durationLabel(val) {
   if (val === "1d")  return "1 Day";
   if (val === "3d")  return "3 Days";
   if (val === "7d")  return "7 Days";
-  if (val === "30d") return "30 Days";
+  if (val === "30d") return "1 Month";
   if (val === "perm") return "Lifetime";
   return "Unknown";
 }
@@ -413,15 +447,28 @@ function pricingDetailEmbed() {
     .setTitle("💰 Product Pricing")
     .setDescription("All prices are listed in **IDR** with approximate **USD** equivalents.\n")
     .addFields(
-      { name: "📜 Script — South Bronx", value: `
-• 1 Day: ${formatPriceIDRUSD(PRICES.script["1d"])}
-• 3 Days: ${formatPriceIDRUSD(PRICES.script["3d"])}
-• 7 Days: ${formatPriceIDRUSD(PRICES.script["7d"])}
-• 30 Days: ${formatPriceIDRUSD(PRICES.script["30d"])}
-• Lifetime: ${formatPriceIDRUSD(PRICES.script["perm"])}
-      `, inline: false },
+      { name: "⚔️ Kill Aura", value: `
+• 1 Day: ${formatPriceIDRUSD(PRICES.killaura["1d"])}
+• 3 Days: ${formatPriceIDRUSD(PRICES.killaura["3d"])}
+• 7 Days: ${formatPriceIDRUSD(PRICES.killaura["7d"])}
+• 1 Month: ${formatPriceIDRUSD(PRICES.killaura["30d"])}
+      `, inline: true },
+      { name: "🎯 Combat (Silent Aim)", value: `
+• 1 Day: ${formatPriceIDRUSD(PRICES.combat["1d"])}
+• 3 Days: ${formatPriceIDRUSD(PRICES.combat["3d"])}
+• 7 Days: ${formatPriceIDRUSD(PRICES.combat["7d"])}
+• 1 Month: ${formatPriceIDRUSD(PRICES.combat["30d"])}
+• Lifetime: ${formatPriceIDRUSD(PRICES.combat["perm"])}
+      `, inline: true },
+      { name: "🌾 Auto Farm", value: `
+• 1 Day: ${formatPriceIDRUSD(PRICES.autofarm["1d"])}
+• 3 Days: ${formatPriceIDRUSD(PRICES.autofarm["3d"])}
+• 7 Days: ${formatPriceIDRUSD(PRICES.autofarm["7d"])}
+• 1 Month: ${formatPriceIDRUSD(PRICES.autofarm["30d"])}
+• Lifetime: ${formatPriceIDRUSD(PRICES.autofarm["perm"])}
+      `, inline: true },
       { name: "🎮 External — Roblox External", value: `
-• Lifetime Only: ${formatPriceIDRUSD(PRICES.external["perm"])}
+• Lifetime: ${formatPriceIDRUSD(PRICES.external["perm"])}
       `, inline: false }
     )
     .setFooter({ text: "Prices are subject to change. Confirm final amount before paying." })
@@ -459,6 +506,16 @@ const commands = [
   new SlashCommandBuilder()
     .setName("genkey")
     .setDescription("Generate script key")
+    .addStringOption(o =>
+      o.setName("product")
+        .setDescription("Select script type")
+        .setRequired(true)
+        .addChoices(
+          { name: "Kill Aura", value: "killaura" },
+          { name: "Combat (Silent Aim)", value: "combat" },
+          { name: "Auto Farm", value: "autofarm" }
+        )
+    )
     .addStringOption(o =>
       o.setName("duration").setDescription("Key duration").setRequired(true)
         .addChoices(
@@ -695,29 +752,49 @@ async function handleSlash(interaction) {
     const data = findOrder(channel.id);
     if (!data) return safeReply(interaction, { content: "No order in this channel." });
     if (data.status === "approved") return safeReply(interaction, { content: "Already approved." });
+
     data.status = "approved";
     data.approvedAt = Date.now();
     data.approvedBy = interaction.user.id;
     saveAll();
     trackMessage(channel.id, "SYSTEM", `[APPROVED] Payment approved by ${interaction.user.tag}`);
 
-    let deliveryContent = "";
-    if (data.product === "South Bronx") {
+    // Build the detailed approval embed (like /genkey style)
+    let approveEmbed;
+    const productKey = getProductKey(data.product);
+    if (["killaura", "combat", "autofarm"].includes(productKey)) {
       const key = generateKey();
       const seconds = parseDuration(data.duration);
-      keys.push({ key, expires: seconds === 0 ? 0 : Date.now() + seconds * 1000, hwid: null, created: Date.now() });
+      const expires = seconds === 0 ? 0 : Date.now() + seconds * 1000;
+      keys.push({ key, expires, hwid: null, created: Date.now() });
       saveAll();
-      deliveryContent = `Here is your script:\n\`\`\`lua\n_G.KEY="${key}"\nloadstring(game:HttpGet("${LOADER_URL}"))()\n\`\`\``;
+      const loaderUrl = SCRIPT_LOADERS[productKey];
+      const scriptReady = `_G.KEY = "${key}"\nloadstring(game:HttpGet("${loaderUrl}"))()`;
+      const expireText = seconds ? `Expired: ${new Date(expires).toLocaleString("id-ID")}` : "Key ini tidak akan expired (Permanent)";
+
+      approveEmbed = new EmbedBuilder()
+        .setColor(COLOR_GREEN)
+        .setTitle("✅ Payment has been approved")
+        .addFields(
+          { name: "Produk", value: data.product, inline: true },
+          { name: "Durasi", value: formatDurasi(seconds), inline: true },
+          { name: "Key", value: "```" + key + "```" },
+          { name: "Expired", value: expireText, inline: true },
+          { name: "Script - Copy Paste ke Madium", value: "```lua\n" + scriptReady + "\n```" }
+        )
+        .setTimestamp();
+    } else {
+      // External or other products – no key
+      approveEmbed = new EmbedBuilder()
+        .setColor(COLOR_GREEN)
+        .setTitle("✅ Payment has been approved")
+        .setDescription(`Your **${data.product}** order has been verified!`)
+        .setTimestamp();
     }
+
     await channel.send({
       content: `<@${data.userId}>`,
-      embeds: [
-        new EmbedBuilder()
-          .setColor(COLOR_GREEN)
-          .setTitle("✅ Payment Approved!")
-          .setDescription(`Your **${data.product}** order has been verified!${deliveryContent ? "\n" + deliveryContent : ""}`)
-          .setTimestamp()
-      ],
+      embeds: [approveEmbed],
       components: [
         new ActionRowBuilder().addComponents(
           new ButtonBuilder().setCustomId(`leave_review:${channel.id}`).setLabel("Leave a Review").setStyle(ButtonStyle.Primary).setEmoji("⭐")
@@ -762,6 +839,7 @@ async function handleSlash(interaction) {
 
     await interaction.deferReply({ flags: 64 });
 
+    const productKey = interaction.options.getString("product"); // killaura, combat, autofarm
     const durasiStr   = interaction.options.getString("duration") || "1d";
     const seconds     = parseDuration(durasiStr);
     const key         = generateKey();
@@ -771,19 +849,27 @@ async function handleSlash(interaction) {
       keys.push({ key, expires, hwid: null, created: Date.now() });
       saveAll();
 
-      const scriptReady = `_G.KEY = "${key}"\nloadstring(game:HttpGet("${SCRIPT_URL}"))()`;
+      const loaderUrl = SCRIPT_LOADERS[productKey];
+      const scriptReady = `_G.KEY = "${key}"\nloadstring(game:HttpGet("${loaderUrl}"))()`;
       const expireText = seconds
         ? `Expired: ${new Date(expires).toLocaleString("id-ID")}`
         : "Key ini tidak akan expired (Permanent)";
+
+      const productNames = {
+        killaura: "Kill Aura",
+        combat: "Combat (Silent Aim)",
+        autofarm: "Auto Farm"
+      };
 
       const embed = new EmbedBuilder()
         .setTitle("✅ Key Berhasil Di-generate!")
         .setColor(0x00ff99)
         .addFields(
+          { name: "Produk", value: productNames[productKey], inline: true },
           { name: "Key", value: "```" + key + "```" },
           { name: "Durasi", value: formatDurasi(seconds), inline: true },
           { name: "Expired", value: expireText, inline: true },
-          { name: "Script - Copy Paste ke Xeno", value: "```lua\n" + scriptReady + "\n```" }
+          { name: "Script - Copy Paste ke Madium", value: "```lua\n" + scriptReady + "\n```" }   // <-- Changed to Madium
         )
         .setTimestamp()
         .setFooter({ text: `Di-generate oleh ${interaction.user.tag}` });
@@ -1085,6 +1171,7 @@ async function handleButton(interaction) {
     const data = findOrder(ticketId);
     if (!data) return safeReply(interaction, { content: "Order not found." });
     if (data.status === "approved") return safeReply(interaction, { content: "Already approved." });
+
     data.status = "approved";
     data.approvedAt = Date.now();
     data.approvedBy = user.id;
@@ -1093,22 +1180,40 @@ async function handleButton(interaction) {
 
     const targetCh = guild.channels.cache.get(ticketId);
     if (targetCh) {
-      let delivery = "";
-      if (data.product === "South Bronx") {
+      let approveEmbed;
+      const productKey = getProductKey(data.product);
+      if (["killaura", "combat", "autofarm"].includes(productKey)) {
         const key = generateKey();
         const seconds = parseDuration(data.duration);
-        keys.push({ key, expires: seconds === 0 ? 0 : Date.now() + seconds * 1000, hwid: null, created: Date.now() });
+        const expires = seconds === 0 ? 0 : Date.now() + seconds * 1000;
+        keys.push({ key, expires, hwid: null, created: Date.now() });
         saveAll();
-        delivery = `\n\`\`\`lua\n_G.KEY="${key}"\nloadstring(game:HttpGet("${LOADER_URL}"))()\n\`\`\``;
+        const loaderUrl = SCRIPT_LOADERS[productKey];
+        const scriptReady = `_G.KEY = "${key}"\nloadstring(game:HttpGet("${loaderUrl}"))()`;
+        const expireText = seconds ? `Expired: ${new Date(expires).toLocaleString("id-ID")}` : "Key ini tidak akan expired (Permanent)";
+
+        approveEmbed = new EmbedBuilder()
+          .setColor(COLOR_GREEN)
+          .setTitle("✅ Payment has been approved")
+          .addFields(
+            { name: "Produk", value: data.product, inline: true },
+            { name: "Durasi", value: formatDurasi(seconds), inline: true },
+            { name: "Key", value: "```" + key + "```" },
+            { name: "Expired", value: expireText, inline: true },
+            { name: "Script - Copy Paste ke Madium", value: "```lua\n" + scriptReady + "\n```" }
+          )
+          .setTimestamp();
+      } else {
+        approveEmbed = new EmbedBuilder()
+          .setColor(COLOR_GREEN)
+          .setTitle("✅ Payment has been approved")
+          .setDescription(`Your **${data.product}** order has been verified!`)
+          .setTimestamp();
       }
+
       targetCh.send({
         content: `<@${data.userId}>`,
-        embeds: [
-          new EmbedBuilder()
-            .setColor(COLOR_GREEN)
-            .setTitle("✅ Payment Approved!")
-            .setDescription(`Your **${data.product}** order has been verified!${delivery}`)
-        ],
+        embeds: [approveEmbed],
         components: [
           new ActionRowBuilder().addComponents(
             new ButtonBuilder().setCustomId(`leave_review:${ticketId}`).setLabel("Leave a Review").setStyle(ButtonStyle.Primary).setEmoji("⭐")
@@ -1116,6 +1221,7 @@ async function handleButton(interaction) {
         ]
       });
     }
+
     try {
       await interaction.update({
         embeds: [new EmbedBuilder().setColor(COLOR_GREEN).setDescription(`✅ Order #${data.orderId} approved by <@${user.id}>`)],
@@ -1192,6 +1298,23 @@ async function resetDropdown(interaction) {
   }
 }
 
+// Helper to build duration select menu for a given product key
+function buildDurationMenu(ticketId, productKey) {
+  const menu = new StringSelectMenuBuilder()
+    .setCustomId(`choose_duration:${ticketId}`)
+    .setPlaceholder("Select duration");
+
+  for (const [dur, price] of Object.entries(PRICES[productKey])) {
+    menu.addOptions({
+      label: durationLabel(dur),
+      value: dur,
+      description: formatPriceIDRUSD(price)
+    });
+  }
+
+  return menu;
+}
+
 async function handleSelect(interaction) {
   const { customId, guild, user, channel } = interaction;
   activityMap.set(channel.id, Date.now());
@@ -1243,7 +1366,7 @@ async function handleSelect(interaction) {
         .setCustomId(`choose_category:${ch.id}`)
         .setPlaceholder("📂 Select category...")
         .addOptions([
-          { label: "Script", description: "South Bronx script", emoji: "📜", value: "script" },
+          { label: "Script", description: "Choose script type", emoji: "📜", value: "script" },
           { label: "External", description: "External cheat", emoji: "🎮", value: "external" }
         ]);
 
@@ -1331,32 +1454,11 @@ async function handleSelect(interaction) {
     if (!data || data.userId !== user.id) return safeReply(interaction, { content: "Not your order." });
 
     const category = interaction.values[0];
-    if (category === "script") {
-      const durMenu = new StringSelectMenuBuilder()
-        .setCustomId(`choose_duration:${ticketId}`)
-        .setPlaceholder("Select duration")
-        .addOptions([
-          { label: "1 Day",     value: "1d",   description: formatPriceIDRUSD(PRICES.script["1d"]) },
-          { label: "3 Days",    value: "3d",   description: formatPriceIDRUSD(PRICES.script["3d"]) },
-          { label: "7 Days",    value: "7d",   description: formatPriceIDRUSD(PRICES.script["7d"]) },
-          { label: "30 Days",   value: "30d",  description: formatPriceIDRUSD(PRICES.script["30d"]) },
-          { label: "Lifetime",  value: "perm", description: formatPriceIDRUSD(PRICES.script["perm"]) }
-        ]);
-      await interaction.update({
-        embeds: [
-          new EmbedBuilder()
-            .setColor(COLOR_MAIN)
-            .setTitle("📜 Script – South Bronx")
-            .setDescription("Select a duration below.")
-        ],
-        components: [new ActionRowBuilder().addComponents(durMenu)]
-      });
-      data.product = "South Bronx";
-      saveAll();
-      return;
-    }
 
+    // External path (lifetime only)
     if (category === "external") {
+      data.product = "Roblox External";
+      saveAll();
       const durMenu = new StringSelectMenuBuilder()
         .setCustomId(`choose_duration:${ticketId}`)
         .setPlaceholder("Select duration")
@@ -1372,11 +1474,60 @@ async function handleSelect(interaction) {
         ],
         components: [new ActionRowBuilder().addComponents(durMenu)]
       });
-      data.product = "Roblox External";
-      saveAll();
       return;
     }
+
+    // Script path → show subcategory selection
+    if (category === "script") {
+      const subMenu = new StringSelectMenuBuilder()
+        .setCustomId(`choose_subcategory:${ticketId}`)
+        .setPlaceholder("Select script type...")
+        .addOptions([
+          { label: "Kill Aura", value: "killaura", description: "Aimbot / Kill aura", emoji: "⚔️" },
+          { label: "Combat", value: "combat", description: "Silent Aim included", emoji: "🎯" },
+          { label: "Auto Farm", value: "autofarm", description: "Auto farming features", emoji: "🌾" }
+        ]);
+
+      await interaction.update({
+        embeds: [
+          new EmbedBuilder()
+            .setColor(COLOR_MAIN)
+            .setTitle("📜 Choose Script Type")
+            .setDescription("Select the type of script you want.")
+        ],
+        components: [new ActionRowBuilder().addComponents(subMenu)]
+      });
+      return;
+    }
+
     return safeReply(interaction, { content: "Invalid category." });
+  }
+
+  // ── Subcategory selection (for script types) ────────────────────────────
+  if (customId.startsWith("choose_subcategory:")) {
+    const [, ticketId] = customId.split(":");
+    const data = findOrder(ticketId);
+    if (!data || data.userId !== user.id) return safeReply(interaction, { content: "Not your order." });
+
+    const subValue = interaction.values[0];
+    const names = { killaura: "Kill Aura", combat: "Combat (Silent Aim)", autofarm: "Auto Farm" };
+    data.product = names[subValue] || subValue;
+    saveAll();
+
+    // Show duration selection for this specific subcategory
+    const durMenu = buildDurationMenu(ticketId, subValue);
+
+    const subCategoryTitle = data.product;
+    await interaction.update({
+      embeds: [
+        new EmbedBuilder()
+          .setColor(COLOR_MAIN)
+          .setTitle(`⚙️ ${subCategoryTitle}`)
+          .setDescription("Select a duration below.")
+      ],
+      components: [new ActionRowBuilder().addComponents(durMenu)]
+    });
+    return;
   }
 
   // ── Duration selection inside a product order ticket ─────────────────────
@@ -1386,7 +1537,9 @@ async function handleSelect(interaction) {
     if (!data || data.userId !== user.id) return safeReply(interaction, { content: "Not your order." });
 
     const dur = interaction.values[0];
-    const price = data.product === "South Bronx" ? PRICES.script[dur] : PRICES.external[dur];
+    const productKey = getProductKey(data.product);
+    if (!productKey) return safeReply(interaction, { content: "Unknown product." });
+    const price = PRICES[productKey]?.[dur];
     if (!price) return safeReply(interaction, { content: "Invalid duration." });
 
     data.duration = dur;
