@@ -40,11 +40,18 @@ const QRIS_IMAGE = process.env.QRIS_IMAGE || "https://cdn.discordapp.com/attachm
 const PAYPAL_EMAIL = process.env.PAYPAL_EMAIL || "phantom.wtfff@gmail.com";
 const LTC_TEXT = process.env.LTC_TEXT || "Unavailable";
 
-// ── Per‑product loader URLs (edit directly or via env) ─────────────────
+// ── Per‑product loader URLs ─────────────────────────────────────────────
 const SCRIPT_LOADERS = {
   killaura: process.env.LOADER_KILLAURA || "https://raw.githubusercontent.com/V7xz/Phantom-1.0/refs/heads/main/Phantom",
   combat:   process.env.LOADER_COMBAT   || "https://vss.pandauth.com/virtual/file/8fbdbff19f624340",
   autofarm: process.env.LOADER_AUTOFARM || "https://vss.pandauth.com/virtual/file/027fc82a484946ef"
+};
+
+// ── Product prefixes for key generation ─────────────────────────────────
+const PRODUCT_PREFIXES = {
+  killaura: "KA",
+  combat:   "CB",
+  autofarm: "AF"
 };
 
 /* =====================================================
@@ -105,7 +112,7 @@ const PRICES = {
   }
 };
 
-// ── USD approximations (matching the required display) ─────────────────
+// ── USD approximations ──────────────────────────────────────────────────
 const USD_APPROX = {
   10000: "0.63",
   12000: "0.75",
@@ -254,8 +261,11 @@ function randomID(len = 10) {
   return crypto.randomBytes(len).toString("hex").slice(0, len);
 }
 
-function generateKey() {
+// ── NEW: generateKey now accepts productKey to create prefixed keys ─────
+function generateKey(productKey) {
+  const prefix = PRODUCT_PREFIXES[productKey] || "XX";
   return (
+    prefix + "-" +
     randomID(4).toUpperCase() + "-" +
     randomID(4).toUpperCase() + "-" +
     randomID(4).toUpperCase() + "-" +
@@ -763,10 +773,10 @@ async function handleSlash(interaction) {
     let approveEmbed;
     const productKey = getProductKey(data.product);
     if (["killaura", "combat", "autofarm"].includes(productKey)) {
-      const key = generateKey();
+      const key = generateKey(productKey);                                 // <-- pass productKey
       const seconds = parseDuration(data.duration);
       const expires = seconds === 0 ? 0 : Date.now() + seconds * 1000;
-      keys.push({ key, expires, hwid: null, created: Date.now() });
+      keys.push({ key, product: productKey, expires, hwid: null, created: Date.now() });  // save product field
       saveAll();
       const loaderUrl = SCRIPT_LOADERS[productKey];
       const scriptReady = `_G.KEY = "${key}"\nloadstring(game:HttpGet("${loaderUrl}"))()`;
@@ -842,11 +852,11 @@ async function handleSlash(interaction) {
     const productKey = interaction.options.getString("product"); // killaura, combat, autofarm
     const durasiStr   = interaction.options.getString("duration") || "1d";
     const seconds     = parseDuration(durasiStr);
-    const key         = generateKey();
+    const key         = generateKey(productKey);                        // <-- pass productKey
 
     try {
       const expires = seconds ? Date.now() + seconds * 1000 : 0;
-      keys.push({ key, expires, hwid: null, created: Date.now() });
+      keys.push({ key, product: productKey, expires, hwid: null, created: Date.now() });  // save product field
       saveAll();
 
       const loaderUrl = SCRIPT_LOADERS[productKey];
@@ -1183,10 +1193,10 @@ async function handleButton(interaction) {
       let approveEmbed;
       const productKey = getProductKey(data.product);
       if (["killaura", "combat", "autofarm"].includes(productKey)) {
-        const key = generateKey();
+        const key = generateKey(productKey);                              // <-- pass productKey
         const seconds = parseDuration(data.duration);
         const expires = seconds === 0 ? 0 : Date.now() + seconds * 1000;
-        keys.push({ key, expires, hwid: null, created: Date.now() });
+        keys.push({ key, product: productKey, expires, hwid: null, created: Date.now() });  // save product field
         saveAll();
         const loaderUrl = SCRIPT_LOADERS[productKey];
         const scriptReady = `_G.KEY = "${key}"\nloadstring(game:HttpGet("${loaderUrl}"))()`;
