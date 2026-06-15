@@ -36,7 +36,7 @@ const CLIENT_ID = process.env.CLIENT_ID;
 const GUILD_ID = process.env.GUILD_ID;
 const LOADER_URL = process.env.LOADER_URL || "";
 const BANNER_URL = process.env.BANNER_URL || "";
-const QRIS_IMAGE = process.env.QRIS_IMAGE || "https://cdn.discordapp.com/attachments/1491728132661842061/1509192479906463826/04892FED-AE6F-469C-BAF6-BE2FBA1E57D7.jpg?ex=6a184886&is=6a16f706&hm=a74b14de9a8142ef50ec51cfac390ca9a77d4d7cb856b0a7fba2213e08e21972&";
+const QRIS_IMAGE = process.env.QRIS_IMAGE || "https://cdn.discordapp.com/attachments/1491728132661842061/1516035722409410631/9792546E-AE38-4309-A5DC-94F5D955A660.jpg?ex=6a312dca&is=6a2fdc4a&hm=2d5b39784b725de0aecd14207624f80a20d34e975f25b104c2d45d607697be76&";
 const PAYPAL_EMAIL = process.env.PAYPAL_EMAIL || "phantom.wtfff@gmail.com";
 const LTC_TEXT = process.env.LTC_TEXT || "Unavailable";
 
