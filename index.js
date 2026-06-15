@@ -36,15 +36,15 @@ const CLIENT_ID = process.env.CLIENT_ID;
 const GUILD_ID = process.env.GUILD_ID;
 const LOADER_URL = process.env.LOADER_URL || "";
 const BANNER_URL = process.env.BANNER_URL || "";
-const QRIS_IMAGE = process.env.QRIS_IMAGE || "https://cdn.discordapp.com/attachments/1491728132661842061/1516035722409410631/9792546E-AE38-4309-A5DC-94F5D955A660.jpg?ex=6a312dca&is=6a2fdc4a&hm=2d5b39784b725de0aecd14207624f80a20d34e975f25b104c2d45d607697be76&";
+const QRIS_IMAGE = process.env.QRIS_IMAGE || "https://cdn.discordapp.com/attachments/1491728132661842061/1509192479906463826/04892FED-AE6F-469C-BAF6-BE2FBA1E57D7.jpg?ex=6a184886&is=6a16f706&hm=a74b14de9a8142ef50ec51cfac390ca9a77d4d7cb856b0a7fba2213e08e21972&";
 const PAYPAL_EMAIL = process.env.PAYPAL_EMAIL || "phantom.wtfff@gmail.com";
 const LTC_TEXT = process.env.LTC_TEXT || "Unavailable";
 
-// ── Per‑product loader URLs (edit later) ───────────────────────────
+// ── Per‑product loader URLs (edit directly or via env) ─────────────────
 const SCRIPT_LOADERS = {
-  killaura: process.env.LOADER_KILLAURA || LOADER_URL || "https://raw.githubusercontent.com/V7xz/Phantom-1.0/refs/heads/main/Phantom",
-  combat:   process.env.LOADER_COMBAT   || LOADER_URL || "https://raw.githubusercontent.com/V7xz/Phantom-1.0/refs/heads/main/Phantom",
-  autofarm: process.env.LOADER_AUTOFARM || LOADER_URL || "https://raw.githubusercontent.com/V7xz/Autocook/refs/heads/main/Autocook?token=GHSAT0AAAAAAD6DMJOSSYOBUGF5IO7MSJCG2RO3RLQ"
+  killaura: process.env.LOADER_KILLAURA || "https://raw.githubusercontent.com/V7xz/Phantom-1.0/refs/heads/main/Phantom",
+  combat:   process.env.LOADER_COMBAT   || "https://vss.pandauth.com/virtual/file/8fbdbff19f624340",
+  autofarm: process.env.LOADER_AUTOFARM || "https://vss.pandauth.com/virtual/file/027fc82a484946ef"
 };
 
 /* =====================================================
@@ -869,7 +869,7 @@ async function handleSlash(interaction) {
           { name: "Key", value: "```" + key + "```" },
           { name: "Durasi", value: formatDurasi(seconds), inline: true },
           { name: "Expired", value: expireText, inline: true },
-          { name: "Script - Copy Paste ke Madium", value: "```lua\n" + scriptReady + "\n```" }   // <-- Changed to Madium
+          { name: "Script - Copy Paste ke Madium", value: "```lua\n" + scriptReady + "\n```" }
         )
         .setTimestamp()
         .setFooter({ text: `Di-generate oleh ${interaction.user.tag}` });
