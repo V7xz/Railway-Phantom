@@ -28,20 +28,22 @@ function writeKeys(data) {
     fs.writeFileSync(KEYS_FILE, JSON.stringify(data, null, 2));
 }
 
+// Prefix mapping – must match the bot’s PRODUCT_PREFIXES
+const PREFIX_MAP = {
+    killaura: "KA",
+    combat:   "CB",
+    autofarm: "AF"
+};
+
 /* =====================================================
    POST /validate
-   Body: { key: string, hwid: string }
+   Body: { key: string, hwid: string, product?: string }
 
-   Flow:
-   1. Key tidak ada      → invalid
-   2. Key expired        → hapus otomatis + invalid
-   3. HWID belum terikat → bind HWID + success
-   4. HWID cocok         → update lastSeen & useCount + success
-   5. HWID tidak cocok   → mismatch
+   product is optional; if sent, the key’s prefix must match.
 ===================================================== */
 
 app.post("/validate", (req, res) => {
-    const { key, hwid } = req.body;
+    const { key, hwid, product } = req.body;
 
     if (!key || !hwid) {
         return res.status(400).json({
@@ -63,6 +65,20 @@ app.post("/validate", (req, res) => {
 
     const data = keys[index];
     const now  = Date.now();
+
+    // --- Product check (new) ---
+    if (product) {
+        const expectedPrefix = PREFIX_MAP[product];
+        if (expectedPrefix) {
+            if (!key.startsWith(expectedPrefix + "-")) {
+                console.log(`[PRODUCT MISMATCH] Key ${key} used for ${product}, but prefix is wrong`);
+                return res.json({
+                    success: false,
+                    message: "Product mismatch"
+                });
+            }
+        }
+    }
 
     // Key expired — expires 0 = permanent, tidak pernah expired
     if (data.expires !== 0 && now > data.expires) {
