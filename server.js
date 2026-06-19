@@ -40,6 +40,7 @@ const PREFIX_MAP = {
    Body: { key: string, hwid: string, product?: string }
 
    product is optional; if sent, the key’s prefix must match.
+   Returns expiry in seconds (os.time format) for the GUI.
 ===================================================== */
 
 app.post("/validate", (req, res) => {
@@ -66,7 +67,7 @@ app.post("/validate", (req, res) => {
     const data = keys[index];
     const now  = Date.now();
 
-    // --- Product check (new) ---
+    // --- Product check ---
     if (product) {
         const expectedPrefix = PREFIX_MAP[product];
         if (expectedPrefix) {
@@ -100,9 +101,13 @@ app.post("/validate", (req, res) => {
         keys[index]   = data;
         writeKeys(keys);
         console.log(`[BIND] Key ${key} → HWID ${hwid}`);
+
+        // ✅ Return expiry in SECONDS for the GUI
+        const expiresSec = data.expires === 0 ? 0 : Math.floor(data.expires / 1000);
         return res.json({
             success: true,
-            message: "Key valid + HWID bound"
+            message: "Key valid + HWID bound",
+            expires: expiresSec          // <--- NEW
         });
     }
 
@@ -121,9 +126,12 @@ app.post("/validate", (req, res) => {
     keys[index]   = data;
     writeKeys(keys);
 
+    // ✅ Return expiry in SECONDS for the GUI
+    const expiresSec = data.expires === 0 ? 0 : Math.floor(data.expires / 1000);
     return res.json({
         success: true,
-        message: "Key valid"
+        message: "Key valid",
+        expires: expiresSec              // <--- NEW
     });
 });
 
