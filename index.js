@@ -34,13 +34,12 @@ const {
 const TOKEN = process.env.TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
 const GUILD_ID = process.env.GUILD_ID;
-const LOADER_URL = process.env.LOADER_URL || "";
 const BANNER_URL = process.env.BANNER_URL || "";
 const QRIS_IMAGE = process.env.QRIS_IMAGE || "https://cdn.discordapp.com/attachments/1491728132661842061/1509192479906463826/04892FED-AE6F-469C-BAF6-BE2FBA1E57D7.jpg?ex=6a184886&is=6a16f706&hm=a74b14de9a8142ef50ec51cfac390ca9a77d4d7cb856b0a7fba2213e08e21972&";
 const PAYPAL_EMAIL = process.env.PAYPAL_EMAIL || "phantom.wtfff@gmail.com";
 const LTC_TEXT = process.env.LTC_TEXT || "Unavailable";
 
-// ── Per‑product loader URLs ─────────────────────────────────────────────
+// ── Per‑product loader URLs (no more LOADER_URL interference) ──────────
 const SCRIPT_LOADERS = {
   killaura: process.env.LOADER_KILLAURA || "https://raw.githubusercontent.com/V7xz/Phantom-1.0/refs/heads/main/Phantom",
   combat:   process.env.LOADER_COMBAT   || "https://vss.pandauth.com/virtual/file/8fbdbff19f624340",
@@ -261,7 +260,7 @@ function randomID(len = 10) {
   return crypto.randomBytes(len).toString("hex").slice(0, len);
 }
 
-// ── NEW: generateKey now accepts productKey to create prefixed keys ─────
+// ── generateKey now accepts productKey to create prefixed keys ──────────
 function generateKey(productKey) {
   const prefix = PRODUCT_PREFIXES[productKey] || "XX";
   return (
@@ -769,14 +768,13 @@ async function handleSlash(interaction) {
     saveAll();
     trackMessage(channel.id, "SYSTEM", `[APPROVED] Payment approved by ${interaction.user.tag}`);
 
-    // Build the detailed approval embed (like /genkey style)
     let approveEmbed;
     const productKey = getProductKey(data.product);
     if (["killaura", "combat", "autofarm"].includes(productKey)) {
-      const key = generateKey(productKey);                                 // <-- pass productKey
+      const key = generateKey(productKey);
       const seconds = parseDuration(data.duration);
       const expires = seconds === 0 ? 0 : Date.now() + seconds * 1000;
-      keys.push({ key, product: productKey, expires, hwid: null, created: Date.now() });  // save product field
+      keys.push({ key, product: productKey, expires, hwid: null, created: Date.now() });
       saveAll();
       const loaderUrl = SCRIPT_LOADERS[productKey];
       const scriptReady = `_G.KEY = "${key}"\nloadstring(game:HttpGet("${loaderUrl}"))()`;
@@ -794,7 +792,6 @@ async function handleSlash(interaction) {
         )
         .setTimestamp();
     } else {
-      // External or other products – no key
       approveEmbed = new EmbedBuilder()
         .setColor(COLOR_GREEN)
         .setTitle("✅ Payment has been approved")
@@ -841,7 +838,7 @@ async function handleSlash(interaction) {
     return safeReply(interaction, { content: "❌ Rejected." });
   }
 
-  // ── Key Bot Commands ───────────────────────────────────────────────────────
+  // ── Key Bot Commands ───────────────────────────────────────────────────
 
   if (commandName === "genkey") {
     if (!isAdmin(member) && !isAdminByRole(interaction))
@@ -849,14 +846,14 @@ async function handleSlash(interaction) {
 
     await interaction.deferReply({ flags: 64 });
 
-    const productKey = interaction.options.getString("product"); // killaura, combat, autofarm
+    const productKey = interaction.options.getString("product");
     const durasiStr   = interaction.options.getString("duration") || "1d";
     const seconds     = parseDuration(durasiStr);
-    const key         = generateKey(productKey);                        // <-- pass productKey
+    const key         = generateKey(productKey);
 
     try {
       const expires = seconds ? Date.now() + seconds * 1000 : 0;
-      keys.push({ key, product: productKey, expires, hwid: null, created: Date.now() });  // save product field
+      keys.push({ key, product: productKey, expires, hwid: null, created: Date.now() });
       saveAll();
 
       const loaderUrl = SCRIPT_LOADERS[productKey];
@@ -891,7 +888,7 @@ async function handleSlash(interaction) {
     }
   }
 
-  // ── EXTENDKEY ────────────────────────────────────────────────────────────────
+  // ── EXTENDKEY ────────────────────────────────────────────────────────────
   if (commandName === "extendkey") {
     if (!isAdmin(member) && !isAdminByRole(interaction))
       return interaction.reply({ content: "No permission.", flags: 64 });
@@ -928,7 +925,7 @@ async function handleSlash(interaction) {
     return interaction.reply({ embeds: [embed], flags: 64 });
   }
 
-  // ── CHECKKEY ─────────────────────────────────────────────────────────────────
+  // ── CHECKKEY ─────────────────────────────────────────────────────────────
   if (commandName === "checkkey") {
     if (!isAdmin(member) && !isAdminByRole(interaction))
       return interaction.reply({ content: "No permission.", flags: 64 });
@@ -959,7 +956,7 @@ async function handleSlash(interaction) {
     return interaction.reply({ embeds: [embed], flags: 64 });
   }
 
-  // ── REVOKEKEY ──────────────────────────────────────────────────────────────
+  // ── REVOKEKEY ────────────────────────────────────────────────────────────
   if (commandName === "revokekey") {
     if (!isAdmin(member) && !isAdminByRole(interaction))
       return interaction.reply({ content: "No permission.", flags: 64 });
@@ -971,7 +968,7 @@ async function handleSlash(interaction) {
     return interaction.reply({ content: "✅ Key revoked.", flags: 64 });
   }
 
-  // ── RESETHWID ───────────────────────────────────────────────────────────────
+  // ── RESETHWID ────────────────────────────────────────────────────────────
   if (commandName === "resethwid") {
     if (!isAdmin(member) && !isAdminByRole(interaction))
       return interaction.reply({ content: "No permission.", flags: 64 });
@@ -983,7 +980,7 @@ async function handleSlash(interaction) {
     return interaction.reply({ content: "✅ HWID reset.", flags: 64 });
   }
 
-  // ── KEYLIST ─────────────────────────────────────────────────────────────────
+  // ── KEYLIST ──────────────────────────────────────────────────────────────
   if (commandName === "keylist") {
     if (!isAdmin(member) && !isAdminByRole(interaction))
       return interaction.reply({ content: "No permission.", flags: 64 });
@@ -1193,10 +1190,10 @@ async function handleButton(interaction) {
       let approveEmbed;
       const productKey = getProductKey(data.product);
       if (["killaura", "combat", "autofarm"].includes(productKey)) {
-        const key = generateKey(productKey);                              // <-- pass productKey
+        const key = generateKey(productKey);
         const seconds = parseDuration(data.duration);
         const expires = seconds === 0 ? 0 : Date.now() + seconds * 1000;
-        keys.push({ key, product: productKey, expires, hwid: null, created: Date.now() });  // save product field
+        keys.push({ key, product: productKey, expires, hwid: null, created: Date.now() });
         saveAll();
         const loaderUrl = SCRIPT_LOADERS[productKey];
         const scriptReady = `_G.KEY = "${key}"\nloadstring(game:HttpGet("${loaderUrl}"))()`;
@@ -1287,7 +1284,6 @@ async function handleButton(interaction) {
 
 /* =====================================================
    SELECT MENU HANDLER
-   (Includes reset fix and ticket/no-ticket logic)
 ===================================================== */
 
 async function resetDropdown(interaction) {
@@ -1308,7 +1304,6 @@ async function resetDropdown(interaction) {
   }
 }
 
-// Helper to build duration select menu for a given product key
 function buildDurationMenu(ticketId, productKey) {
   const menu = new StringSelectMenuBuilder()
     .setCustomId(`choose_duration:${ticketId}`)
@@ -1329,17 +1324,14 @@ async function handleSelect(interaction) {
   const { customId, guild, user, channel } = interaction;
   activityMap.set(channel.id, Date.now());
 
-  // ── Main shop category select ────────────────────────────────────────────
   if (customId === "shop_category_select") {
     const choice = interaction.values[0];
 
-    // Pricing – no ticket, show embed
     if (choice === "pricing") {
       await interaction.reply({ embeds: [pricingDetailEmbed()], flags: 64 });
       return resetDropdown(interaction);
     }
 
-    // Product – create ticket and start product flow
     if (choice === "product") {
       const openCount = orders.filter(o => o.userId === user.id && ["payment", "waiting", "approved"].includes(o.status)).length;
       if (openCount >= CONFIG.MAX_OPEN_TICKETS_PER_USER) {
@@ -1395,7 +1387,6 @@ async function handleSelect(interaction) {
       return resetDropdown(interaction);
     }
 
-    // Support categories – create a ticket
     const openCount = orders.filter(o => o.userId === user.id && ["payment", "waiting", "approved"].includes(o.status)).length;
     if (openCount >= CONFIG.MAX_OPEN_TICKETS_PER_USER) {
       await interaction.reply({ content: `❌ You already have ${CONFIG.MAX_OPEN_TICKETS_PER_USER} open tickets.`, flags: 64 });
@@ -1457,7 +1448,6 @@ async function handleSelect(interaction) {
     return resetDropdown(interaction);
   }
 
-  // ── Category selection inside a product order ticket ────────────────────
   if (customId.startsWith("choose_category:")) {
     const [, ticketId] = customId.split(":");
     const data = findOrder(ticketId);
@@ -1465,7 +1455,6 @@ async function handleSelect(interaction) {
 
     const category = interaction.values[0];
 
-    // External path (lifetime only)
     if (category === "external") {
       data.product = "Roblox External";
       saveAll();
@@ -1487,7 +1476,6 @@ async function handleSelect(interaction) {
       return;
     }
 
-    // Script path → show subcategory selection
     if (category === "script") {
       const subMenu = new StringSelectMenuBuilder()
         .setCustomId(`choose_subcategory:${ticketId}`)
@@ -1513,7 +1501,6 @@ async function handleSelect(interaction) {
     return safeReply(interaction, { content: "Invalid category." });
   }
 
-  // ── Subcategory selection (for script types) ────────────────────────────
   if (customId.startsWith("choose_subcategory:")) {
     const [, ticketId] = customId.split(":");
     const data = findOrder(ticketId);
@@ -1524,15 +1511,13 @@ async function handleSelect(interaction) {
     data.product = names[subValue] || subValue;
     saveAll();
 
-    // Show duration selection for this specific subcategory
     const durMenu = buildDurationMenu(ticketId, subValue);
 
-    const subCategoryTitle = data.product;
     await interaction.update({
       embeds: [
         new EmbedBuilder()
           .setColor(COLOR_MAIN)
-          .setTitle(`⚙️ ${subCategoryTitle}`)
+          .setTitle(`⚙️ ${data.product}`)
           .setDescription("Select a duration below.")
       ],
       components: [new ActionRowBuilder().addComponents(durMenu)]
@@ -1540,7 +1525,6 @@ async function handleSelect(interaction) {
     return;
   }
 
-  // ── Duration selection inside a product order ticket ─────────────────────
   if (customId.startsWith("choose_duration:")) {
     const [, ticketId] = customId.split(":");
     const data = findOrder(ticketId);
@@ -1560,24 +1544,9 @@ async function handleSelect(interaction) {
 
     trackMessage(ticketId, user.tag, `[DURATION SELECTED] ${data.product} – ${durationLabel(dur)} at ${moneyIDR(price)} (${getUSDApprox(price)})`);
 
-    const qris = {
-      label: "QRIS",
-      emoji: "🏦",
-      instructions: "Scan QRIS to pay the exact amount.",
-      image: QRIS_IMAGE
-    };
-    const paypal = {
-      label: "PayPal",
-      emoji: "💳",
-      instructions: "Send as Friends & Family.",
-      address: PAYPAL_EMAIL
-    };
-    const ltc = {
-      label: "LTC",
-      emoji: "🪙",
-      instructions: "Send to LTC address.",
-      address: LTC_TEXT
-    };
+    const qris = { label: "QRIS", emoji: "🏦", instructions: "Scan QRIS to pay the exact amount.", image: QRIS_IMAGE };
+    const paypal = { label: "PayPal", emoji: "💳", instructions: "Send as Friends & Family.", address: PAYPAL_EMAIL };
+    const ltc = { label: "LTC", emoji: "🪙", instructions: "Send to LTC address.", address: LTC_TEXT };
 
     const ch = guild.channels.cache.get(ticketId);
     if (!ch) return safeReply(interaction, { content: "Ticket channel not found." });
@@ -1589,9 +1558,7 @@ async function handleSelect(interaction) {
           .setColor(COLOR_MAIN)
           .setTitle("🏦 QRIS Payment")
           .setDescription(qris.instructions)
-          .addFields(
-            { name: "Amount", value: `${moneyIDR(price)}\n${getUSDApprox(price)}`, inline: true }
-          )
+          .addFields({ name: "Amount", value: `${moneyIDR(price)}\n${getUSDApprox(price)}`, inline: true })
           .setImage(qris.image)
       ]
     });
@@ -1641,7 +1608,6 @@ async function handleSelect(interaction) {
     return interaction.update({ content: "✅ Duration selected! Check the payment instructions above.", embeds: [], components: [] });
   }
 
-  // ── Payment method selection ──────────────────────────────────────────
   if (customId.startsWith("select_payment:")) {
     const [, ticketId] = customId.split(":");
     const data = findOrder(ticketId);
