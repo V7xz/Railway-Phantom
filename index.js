@@ -41,10 +41,10 @@ const LTC_TEXT = process.env.LTC_TEXT || "Unavailable";
 
 // ── Per‑product loader URLs ─────────────────────────────────────────────
 const SCRIPT_LOADERS = {
-  killaura: process.env.LOADER_KILLAURA || "https://raw.githubusercontent.com/V7xz/Phantom-1.0/refs/heads/main/Phantom",
-  combat:   process.env.LOADER_COMBAT   || "https://vss.pandauth.com/virtual/file/8fbdbff19f624340",
+  killaura: process.env.LOADER_KILLAURA || "https://vss.pandauth.com/virtual/file/027fc82a484946ef",
+  combat:   process.env.LOADER_COMBAT   || "https://vss.pandauth.com/virtual/file/027fc82a484946ef",
   autofarm: process.env.LOADER_AUTOFARM || "https://vss.pandauth.com/virtual/file/027fc82a484946ef",
-  fps:      process.env.LOADER_FPS      || "https://your-fps-script-url.com/script.lua"  // ← Placeholder, change later
+  fps:      process.env.LOADER_FPS      || "https://vss.pandauth.com/virtual/file/027fc82a484946ef"  // ← Placeholder, change later
 };
 
 // ── Product prefixes for key generation ─────────────────────────────────
