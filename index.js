@@ -39,18 +39,20 @@ const QRIS_IMAGE = process.env.QRIS_IMAGE || "https://cdn.discordapp.com/attachm
 const PAYPAL_EMAIL = process.env.PAYPAL_EMAIL || "phantom.wtfff@gmail.com";
 const LTC_TEXT = process.env.LTC_TEXT || "Unavailable";
 
-// ── Per‑product loader URLs (no more LOADER_URL interference) ──────────
+// ── Per‑product loader URLs ─────────────────────────────────────────────
 const SCRIPT_LOADERS = {
   killaura: process.env.LOADER_KILLAURA || "https://raw.githubusercontent.com/V7xz/Phantom-1.0/refs/heads/main/Phantom",
   combat:   process.env.LOADER_COMBAT   || "https://vss.pandauth.com/virtual/file/8fbdbff19f624340",
-  autofarm: process.env.LOADER_AUTOFARM || "https://vss.pandauth.com/virtual/file/027fc82a484946ef"
+  autofarm: process.env.LOADER_AUTOFARM || "https://vss.pandauth.com/virtual/file/027fc82a484946ef",
+  fps:      process.env.LOADER_FPS      || "https://your-fps-script-url.com/script.lua"  // ← Placeholder, change later
 };
 
 // ── Product prefixes for key generation ─────────────────────────────────
 const PRODUCT_PREFIXES = {
   killaura: "KA",
   combat:   "CB",
-  autofarm: "AF"
+  autofarm: "AF",
+  fps:      "FP"
 };
 
 /* =====================================================
@@ -106,6 +108,13 @@ const PRICES = {
     "30d": 80000,
     "perm": 100000
   },
+  fps: {
+    "1d": 10000,
+    "3d": 20000,
+    "7d": 40000,
+    "30d": 80000,
+    "perm": 100000
+  },
   external: {
     "perm": 110000
   }
@@ -142,6 +151,7 @@ function getProductKey(productName) {
   if (productName === "Kill Aura") return "killaura";
   if (productName === "Combat (Silent Aim)") return "combat";
   if (productName === "Auto Farm") return "autofarm";
+  if (productName === "FPS") return "fps";
   if (productName === "Roblox External") return "external";
   return null;
 }
@@ -476,6 +486,13 @@ function pricingDetailEmbed() {
 • 1 Month: ${formatPriceIDRUSD(PRICES.autofarm["30d"])}
 • Lifetime: ${formatPriceIDRUSD(PRICES.autofarm["perm"])}
       `, inline: true },
+      { name: "🔫 FPS", value: `
+• 1 Day: ${formatPriceIDRUSD(PRICES.fps["1d"])}
+• 3 Days: ${formatPriceIDRUSD(PRICES.fps["3d"])}
+• 7 Days: ${formatPriceIDRUSD(PRICES.fps["7d"])}
+• 1 Month: ${formatPriceIDRUSD(PRICES.fps["30d"])}
+• Lifetime: ${formatPriceIDRUSD(PRICES.fps["perm"])}
+      `, inline: true },
       { name: "🎮 External — Roblox External", value: `
 • Lifetime: ${formatPriceIDRUSD(PRICES.external["perm"])}
       `, inline: false }
@@ -522,7 +539,8 @@ const commands = [
         .addChoices(
           { name: "Kill Aura", value: "killaura" },
           { name: "Combat (Silent Aim)", value: "combat" },
-          { name: "Auto Farm", value: "autofarm" }
+          { name: "Auto Farm", value: "autofarm" },
+          { name: "FPS", value: "fps" }
         )
     )
     .addStringOption(o =>
@@ -770,7 +788,7 @@ async function handleSlash(interaction) {
 
     let approveEmbed;
     const productKey = getProductKey(data.product);
-    if (["killaura", "combat", "autofarm"].includes(productKey)) {
+    if (["killaura", "combat", "autofarm", "fps"].includes(productKey)) {
       const key = generateKey(productKey);
       const seconds = parseDuration(data.duration);
       const expires = seconds === 0 ? 0 : Date.now() + seconds * 1000;
@@ -865,7 +883,8 @@ async function handleSlash(interaction) {
       const productNames = {
         killaura: "Kill Aura",
         combat: "Combat (Silent Aim)",
-        autofarm: "Auto Farm"
+        autofarm: "Auto Farm",
+        fps: "FPS"
       };
 
       const embed = new EmbedBuilder()
@@ -1189,7 +1208,7 @@ async function handleButton(interaction) {
     if (targetCh) {
       let approveEmbed;
       const productKey = getProductKey(data.product);
-      if (["killaura", "combat", "autofarm"].includes(productKey)) {
+      if (["killaura", "combat", "autofarm", "fps"].includes(productKey)) {
         const key = generateKey(productKey);
         const seconds = parseDuration(data.duration);
         const expires = seconds === 0 ? 0 : Date.now() + seconds * 1000;
@@ -1483,7 +1502,8 @@ async function handleSelect(interaction) {
         .addOptions([
           { label: "Kill Aura", value: "killaura", description: "Aimbot / Kill aura", emoji: "⚔️" },
           { label: "Combat", value: "combat", description: "Silent Aim included", emoji: "🎯" },
-          { label: "Auto Farm", value: "autofarm", description: "Auto farming features", emoji: "🌾" }
+          { label: "Auto Farm", value: "autofarm", description: "Auto farming features", emoji: "🌾" },
+          { label: "FPS", value: "fps", description: "FPS Booster", emoji: "🔫" }
         ]);
 
       await interaction.update({
@@ -1507,7 +1527,7 @@ async function handleSelect(interaction) {
     if (!data || data.userId !== user.id) return safeReply(interaction, { content: "Not your order." });
 
     const subValue = interaction.values[0];
-    const names = { killaura: "Kill Aura", combat: "Combat (Silent Aim)", autofarm: "Auto Farm" };
+    const names = { killaura: "Kill Aura", combat: "Combat (Silent Aim)", autofarm: "Auto Farm", fps: "FPS" };
     data.product = names[subValue] || subValue;
     saveAll();
 
