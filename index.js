@@ -586,30 +586,25 @@ client.once("ready", async () => {
     status: "online"
   });
 
-  // Delay to ensure full connection
   await new Promise(resolve => setTimeout(resolve, 5000));
 
   const rest = new REST({ version: "10" }).setToken(TOKEN);
-  
+
   console.log("TOKEN:", TOKEN ? "Set" : "MISSING");
   console.log("CLIENT_ID:", CLIENT_ID);
   console.log("GUILD_ID:", GUILD_ID);
 
+  // Register commands WITHOUT clearing first
   try {
-    // Clear all existing commands first
-    await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: [] });
-    console.log("Old commands cleared.");
-    
-    // Register all commands at once
     const result = await rest.put(
       Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
       { body: commands }
     );
-    console.log(`✅ ${result.length} slash commands loaded!`);
+    console.log(`✅ ${result.length} slash commands registered!`);
   } catch (err) {
     console.error("Registration failed:", err.message);
   }
-
+  
   // ── Ticket auto-close interval ──────────────────────────────────────────
   setInterval(async () => {
     const now = Date.now();
