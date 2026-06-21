@@ -38,13 +38,18 @@ function writeOrders(data) {
 // ── Prefix mapping (matches bot) ──
 const PREFIX_MAP = {
     killaura: "KA",
-    combat: "CB",
+    combat:   "CB",
     autofarm: "AF",
-    fps: "FP"
+    fps:      "FP",
+    // Free trial prefixes
+    "KAFREE": "KA",
+    "CBFREE": "CB",
+    "AFFREE": "AF",
+    "FPFREE": "FP"
 };
 
 /* =====================================================
-   /validate — checks disk keys AND in‑memory trial keys
+   /validate – checks disk keys AND in‑memory trial keys
 ===================================================== */
 
 app.post("/validate", (req, res) => {
@@ -61,7 +66,19 @@ app.post("/validate", (req, res) => {
         if (trialIndex !== -1) {
             const data = global.trialKeys[trialIndex];
 
-            // Trial keys bypass product prefix check (they start with KAFREE)
+            // Product prefix check for trial keys
+            if (product) {
+                const expectedPrefix = PREFIX_MAP[product]; // e.g. "KA"
+                if (expectedPrefix) {
+                    // For a trial key, the prefix should be the free version, e.g. "KAFREE-"
+                    const freePrefix = expectedPrefix + "FREE";
+                    if (!key.startsWith(freePrefix + "-")) {
+                        console.log(`[PRODUCT MISMATCH] Trial key ${key} used for ${product}`);
+                        return res.json({ success: false, message: "Product mismatch" });
+                    }
+                }
+            }
+
             if (data.expires !== 0 && now > data.expires) {
                 global.trialKeys.splice(trialIndex, 1);
                 return res.json({ success: false, message: "Trial key has expired" });
@@ -107,7 +124,6 @@ app.post("/validate", (req, res) => {
 
     const data = keys[index];
 
-    // Product prefix check (skip for trial keys, but they already returned above)
     if (product) {
         const expectedPrefix = PREFIX_MAP[product];
         if (expectedPrefix && !key.startsWith(expectedPrefix + "-")) {
@@ -246,7 +262,6 @@ app.post("/api/create-ticket", async (req, res) => {
         orders.push(orderData);
         writeOrders(orders);
 
-        // Import Discord.js dynamically (already imported in index.js, but we need it here too)
         const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require("discord.js");
 
         const embed = new EmbedBuilder()
@@ -276,7 +291,6 @@ app.post("/api/create-ticket", async (req, res) => {
             ]
         });
 
-        // Send PayPal info separately
         const paypalEmbed = new EmbedBuilder()
             .setColor(0x7b2cff)
             .setTitle("💳 PayPal Payment")
