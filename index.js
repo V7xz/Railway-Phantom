@@ -44,7 +44,7 @@ const SCRIPT_LOADERS = {
   killaura: process.env.LOADER_KILLAURA || "https://vss.pandauth.com/virtual/file/027fc82a484946ef",
   combat:   process.env.LOADER_COMBAT   || "https://vss.pandauth.com/virtual/file/027fc82a484946ef",
   autofarm: process.env.LOADER_AUTOFARM || "https://vss.pandauth.com/virtual/file/027fc82a484946ef",
-  fps:      process.env.LOADER_FPS      || "https://vss.pandauth.com/virtual/file/027fc82a484946ef"  // placeholder, change later
+  fps:      process.env.LOADER_FPS      || "https://vss.pandauth.com/virtual/file/027fc82a484946ef"
 };
 
 // ── Product prefixes for key generation ─────────────────────────────────
