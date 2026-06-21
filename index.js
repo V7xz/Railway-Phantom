@@ -586,15 +586,26 @@ client.once("ready", async () => {
     status: "online"
   });
 
+  // Delay to ensure full connection
+  await new Promise(resolve => setTimeout(resolve, 5000));
+
   const rest = new REST({ version: "10" }).setToken(TOKEN);
+  
+  console.log("TOKEN:", TOKEN ? "Set" : "MISSING");
+  console.log("CLIENT_ID:", CLIENT_ID);
+  console.log("GUILD_ID:", GUILD_ID);
+
   try {
-    await new Promise(resolve => setTimeout(resolve, 3000));
+    // Clear all existing commands first
     await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: [] });
+    console.log("Old commands cleared.");
+    
+    // Register new commands
     await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: commands });
-    console.log("Slash commands loaded.");
-} catch (err) {
-    console.error("Slash command error:", err);
-}
+    console.log("✅ Slash commands loaded! Total:", commands.length);
+  } catch (err) {
+    console.error("❌ Slash command error:", err.message);
+  }
 
   // ── Ticket auto-close interval ──────────────────────────────────────────
   setInterval(async () => {
