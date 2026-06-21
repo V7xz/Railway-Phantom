@@ -44,7 +44,7 @@ const PREFIX_MAP = {
 };
 
 /* =====================================================
-   /validate — existing key validation
+   /validate — checks disk keys AND in‑memory trial keys
 ===================================================== */
 
 app.post("/validate", (req, res) => {
@@ -52,14 +52,62 @@ app.post("/validate", (req, res) => {
     if (!key || !hwid) {
         return res.status(400).json({ success: false, message: "Missing key or hwid" });
     }
+
+    const now = Date.now();
+
+    // 1. Search in‑memory trial keys
+    if (global.trialKeys) {
+        const trialIndex = global.trialKeys.findIndex(k => k.key === key);
+        if (trialIndex !== -1) {
+            const data = global.trialKeys[trialIndex];
+
+            // Trial keys bypass product prefix check (they start with KAFREE)
+            if (data.expires !== 0 && now > data.expires) {
+                global.trialKeys.splice(trialIndex, 1);
+                return res.json({ success: false, message: "Trial key has expired" });
+            }
+
+            if (!data.hwid) {
+                if (data.duration > 0) data.expires = now + data.duration;
+                data.hwid = hwid;
+                data.boundAt = now;
+                data.lastSeen = now;
+                data.useCount = 1;
+                global.trialKeys[trialIndex] = data;
+                const expiresSec = data.duration > 0 ? Math.floor(data.expires / 1000) : 0;
+                return res.json({
+                    success: true,
+                    message: "Trial key valid + HWID bound",
+                    expires: expiresSec
+                });
+            }
+
+            if (data.hwid !== hwid) {
+                return res.json({ success: false, message: "HWID mismatch" });
+            }
+
+            data.lastSeen = now;
+            data.useCount = (data.useCount || 0) + 1;
+            global.trialKeys[trialIndex] = data;
+            const expiresSec = data.duration > 0 ? Math.floor(data.expires / 1000) : 0;
+            return res.json({
+                success: true,
+                message: "Trial key valid",
+                expires: expiresSec
+            });
+        }
+    }
+
+    // 2. Search disk keys
     let keys = readKeys();
     const index = keys.findIndex(k => k.key === key);
     if (index === -1) {
         return res.json({ success: false, message: "Key not found" });
     }
-    const data = keys[index];
-    const now = Date.now();
 
+    const data = keys[index];
+
+    // Product prefix check (skip for trial keys, but they already returned above)
     if (product) {
         const expectedPrefix = PREFIX_MAP[product];
         if (expectedPrefix && !key.startsWith(expectedPrefix + "-")) {
@@ -76,14 +124,19 @@ app.post("/validate", (req, res) => {
     }
 
     if (!data.hwid) {
+        if (data.duration > 0) data.expires = now + data.duration;
         data.hwid = hwid;
         data.boundAt = now;
         data.lastSeen = now;
         data.useCount = 1;
         keys[index] = data;
         writeKeys(keys);
-        const expiresSec = data.expires === 0 ? 0 : Math.floor(data.expires / 1000);
-        return res.json({ success: true, message: "Key valid + HWID bound", expires: expiresSec });
+        const expiresSec = data.duration > 0 ? Math.floor(data.expires / 1000) : 0;
+        return res.json({
+            success: true,
+            message: "Key valid + HWID bound",
+            expires: expiresSec
+        });
     }
 
     if (data.hwid !== hwid) {
@@ -95,8 +148,12 @@ app.post("/validate", (req, res) => {
     data.useCount = (data.useCount || 0) + 1;
     keys[index] = data;
     writeKeys(keys);
-    const expiresSec = data.expires === 0 ? 0 : Math.floor(data.expires / 1000);
-    return res.json({ success: true, message: "Key valid", expires: expiresSec });
+    const expiresSec = data.duration > 0 ? Math.floor(data.expires / 1000) : 0;
+    return res.json({
+        success: true,
+        message: "Key valid",
+        expires: expiresSec
+    });
 });
 
 /* =====================================================
@@ -156,10 +213,10 @@ app.post("/api/create-ticket", async (req, res) => {
         }
         const channel = await guild.channels.create({
             name: `order-${member.user.username}`.substring(0, 28).toLowerCase(),
-            type: 0,
+            type: 0, // GuildText
             permissionOverwrites: [
-                { id: guild.id, deny: [1024] },
-                { id: userId, allow: [1024, 2048] }
+                { id: guild.id, deny: [1024] }, // ViewChannel
+                { id: userId, allow: [1024, 2048] } // ViewChannel, SendMessages
             ]
         });
         const orderData = {
@@ -189,6 +246,7 @@ app.post("/api/create-ticket", async (req, res) => {
         orders.push(orderData);
         writeOrders(orders);
 
+        // Import Discord.js dynamically (already imported in index.js, but we need it here too)
         const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require("discord.js");
 
         const embed = new EmbedBuilder()
@@ -218,6 +276,7 @@ app.post("/api/create-ticket", async (req, res) => {
             ]
         });
 
+        // Send PayPal info separately
         const paypalEmbed = new EmbedBuilder()
             .setColor(0x7b2cff)
             .setTitle("💳 PayPal Payment")
@@ -243,8 +302,8 @@ app.get("/", (req, res) => {
         status: "Phantom API running",
         keys: {
             total: keys.length,
-            active: keys.filter(k => k.expires === 0 || k.expires > now).length,
-            expired: keys.filter(k => k.expires !== 0 && k.expires < now).length,
+            active: keys.filter(k => k.duration === 0 ? true : (k.expires !== 0 ? k.expires > now : false)).length,
+            expired: keys.filter(k => k.duration !== 0 && k.expires !== 0 && k.expires < now).length,
             bound: keys.filter(k => !!k.hwid).length
         }
     });
