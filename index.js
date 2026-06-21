@@ -47,12 +47,20 @@ const SCRIPT_LOADERS = {
   fps:      process.env.LOADER_FPS      || "https://vss.pandauth.com/virtual/file/027fc82a484946ef"
 };
 
-// ── Product prefixes for key generation ─────────────────────────────────
+// ── Product prefixes for paid keys ──────────────────────────────────────
 const PRODUCT_PREFIXES = {
   killaura: "KA",
   combat:   "CB",
   autofarm: "AF",
   fps:      "FP"
+};
+
+// ── Free prefixes for trial keys ────────────────────────────────────────
+const FREE_PREFIXES = {
+  killaura: "KAFREE",
+  combat:   "CBFREE",
+  autofarm: "AFFREE",
+  fps:      "FPFREE"
 };
 
 /* =====================================================
@@ -248,9 +256,9 @@ function generateKey(productKey) {
   );
 }
 
-// ── Trial key generation (in‑memory, uses product prefix) ───────────────
+// ── Trial key generation (in‑memory, uses free prefix) ──────────────────
 function generateTrialKey(productKey) {
-  const prefix = PRODUCT_PREFIXES[productKey] || "XX";
+  const prefix = FREE_PREFIXES[productKey] || "XXFREE";
   return (
     prefix + "-" +
     randomID(4).toUpperCase() + "-" +
@@ -1132,14 +1140,12 @@ async function handleSlash(interaction) {
     const userId = interaction.user.id;
 
     refreshKeys();
-    // Search in disk keys first (paid keys)
     const diskIndex = keys.findIndex(k => k.key === key);
     let data = null;
     let isTrialKey = false;
 
     if (diskIndex !== -1) {
       data = keys[diskIndex];
-      // Bind Discord ID if not already set (only for paid keys)
       if (!data.userId) {
         data.userId = userId;
         keys[diskIndex] = data;
@@ -1147,7 +1153,6 @@ async function handleSlash(interaction) {
         console.log(`[BIND] Key ${key} bound to Discord user ${userId}`);
       }
     } else {
-      // Search in trial keys (no binding)
       const trialEntry = global.trialKeys.find(k => k.key === key);
       if (trialEntry) {
         data = trialEntry;
@@ -1198,7 +1203,7 @@ async function handleSlash(interaction) {
     return interaction.reply({ embeds: [embed], flags: 64 });
   }
 
-  // ── /setuptrials (admin only, updated) ────────────────────────────────
+  // ── /setuptrials (admin only, unchanged) ──────────────────────────────
   if (commandName === "setuptrials") {
     if (!isAdmin(member)) return safeReply(interaction, { content: "No permission." });
 
