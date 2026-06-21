@@ -71,6 +71,7 @@ const CONFIG = {
   BOT_NAME: "Phantom.wtf",
   OWNER_ID: "961847981684973569",
   ADMIN_ROLE_NAME: "dev",
+  RESELLER_ROLE_ID: "1517159248012906607",
   AUTO_CLOSE_HOURS: 24,
   CURRENCY_RATE: 17000,
   BUYER_ROLE_NAME: "Subscriptions",
@@ -154,13 +155,14 @@ const FILES = {
   reviews: path.join(DATA_DIR, "reviews.json"),
   logs: path.join(DATA_DIR, "logs.json"),
   transcript: path.join(DATA_DIR, "transcripts.json"),
-  trials: path.join(DATA_DIR, "trials.json")          // only panel configs
+  trials: path.join(DATA_DIR, "trials.json"),
+  genlog: path.join(DATA_DIR, "genlog.json")
 };
 
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR);
 
 for (const file of Object.values(FILES)) {
-  if (!fs.existsSync(file)) fs.writeFileSync(file, file.endsWith("trials.json") ? "[]" : "[]");
+  if (!fs.existsSync(file)) fs.writeFileSync(file, file.endsWith("genlog.json") ? "{}" : (file.endsWith("trials.json") ? "[]" : "[]"));
 }
 
 function readJSON(file) {
@@ -176,7 +178,13 @@ let keys = readJSON(FILES.keys);
 let reviews = readJSON(FILES.reviews);
 let logs = readJSON(FILES.logs);
 let transcripts = readJSON(FILES.transcript);
-let trials = readJSON(FILES.trials);   // only panel configs
+let trials = readJSON(FILES.trials);
+let genlogChannelId = (() => {
+    try {
+        const data = JSON.parse(fs.readFileSync(FILES.genlog, "utf8"));
+        return data.channelId || null;
+    } catch { return null; }
+})();
 
 // ── IN‑MEMORY TRIAL KEYS (never written to disk) ──────────────────────
 global.trialKeys = [];
@@ -208,6 +216,14 @@ function isAdminByRole(interaction) {
   const ADMIN_ROLE_ID = process.env.ADMIN_ROLE_ID;
   if (!ADMIN_ROLE_ID) return false;
   return interaction.member.roles.cache.has(ADMIN_ROLE_ID);
+}
+
+function isReseller(member) {
+  return member.roles.cache.has(CONFIG.RESELLER_ROLE_ID);
+}
+
+function canGenkey(member, interaction) {
+  return isAdmin(member) || isAdminByRole(interaction) || isReseller(member);
 }
 
 function parseDuration(val) {
@@ -286,7 +302,7 @@ function createKey(productKey, durationMs, userId, isTrial = false) {
     global.trialKeys.push(entry);
   } else {
     keys.push(entry);
-    saveAll();
+     saveAll();
   }
   return key;
 }
@@ -298,6 +314,7 @@ function saveAll() {
   writeJSON(FILES.logs, logs);
   writeJSON(FILES.transcript, transcripts);
   writeJSON(FILES.trials, trials);
+  writeJSON(FILES.genlog, { channelId: genlogChannelId });
 }
 
 function findOrder(channelId) {
@@ -518,6 +535,7 @@ const commands = [
   new SlashCommandBuilder().setName("setuplogs").setDescription("Set current channel as log channel"),
   new SlashCommandBuilder().setName("setupreviews").setDescription("Set current channel as review channel"),
   new SlashCommandBuilder().setName("setuptranscript").setDescription("Set current channel as transcript destination"),
+  new SlashCommandBuilder().setName("setupgenlog").setDescription("Set current channel as genkey log channel"),
   new SlashCommandBuilder().setName("dashboard").setDescription("View live stats"),
   new SlashCommandBuilder().setName("claim").setDescription("Claim this ticket"),
   new SlashCommandBuilder().setName("close").setDescription("Close current ticket (generates transcript)"),
@@ -731,6 +749,12 @@ async function handleSlash(interaction) {
     saveAll();
     return safeReply(interaction, { content: "✅ Transcript channel set." });
   }
+    if (commandName === "setupgenlog") {
+    if (!isAdmin(member)) return safeReply(interaction, { content:"No permission." });
+    genlogChannelId = channel.id;
+    saveAll();
+    return safeReply(interaction, { content:"✅ Genkey log channel set." });
+  }
 
   if (commandName === "dashboard") {
     if (!isAdmin(member)) return safeReply(interaction, { content: "No permission." });
@@ -884,8 +908,8 @@ async function handleSlash(interaction) {
 
   // ── Key Bot Commands ───────────────────────────────────────────────────
 
-  if (commandName === "genkey") {
-    if (!isAdmin(member) && !isAdminByRole(interaction))
+    if (commandName === "genkey") {
+    if (!canGenkey(member, interaction))
       return interaction.reply({ content: "Kamu tidak punya izin!", flags: 64 });
 
     await interaction.deferReply({ flags: 64 });
@@ -899,6 +923,23 @@ async function handleSlash(interaction) {
     const loaderUrl = SCRIPT_LOADERS[productKey];
     const scriptReady = `_G.KEY = "${key}"\nloadstring(game:HttpGet("${loaderUrl}"))()`;
     const expireText = seconds ? `Starts when first used` : `Lifetime`;
+
+    if (genlogChannelId) {
+      const logCh = client.channels.cache.get(genlogChannelId);
+      if (logCh) {
+        const productNames = { killaura: "Kill Aura", combat: "Combat (Silent Aim)", autofarm: "Auto Farm", fps: "FPS" };
+        const logEmbed = new EmbedBuilder()
+          .setColor(0x00ff99)
+          .setTitle("🔑 Key Generated")
+          .addFields(
+            { name: "Product", value: productNames[productKey], inline: true },
+            { name: "Duration", value: durationLabel(durasiStr), inline: true },
+            { name: "Generated by", value: `<@${interaction.user.id}> (${interaction.user.tag})`, inline: true }
+          )
+          .setTimestamp();
+        logCh.send({ embeds: [logEmbed] }).catch(() => {});
+      }
+    }
 
     const productNames = {
       killaura: "Kill Aura",
