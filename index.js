@@ -594,13 +594,13 @@ client.once("ready", async () => {
   console.log("CLIENT_ID:", CLIENT_ID);
   console.log("GUILD_ID:", GUILD_ID);
 
-  // Register commands WITHOUT clearing first
+  // Register commands globally
   try {
     const result = await rest.put(
-      Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
+      Routes.applicationCommands(CLIENT_ID),
       { body: commands }
     );
-    console.log(`✅ ${result.length} slash commands registered!`);
+    console.log(`✅ ${result.length} slash commands registered globally!`);
   } catch (err) {
     console.error("Registration failed:", err.message);
   }
@@ -2032,7 +2032,7 @@ client.on("messageCreate", (msg) => {
    LOGIN
 ===================================================== */
 
-const missing = ["TOKEN", "CLIENT_ID", "GUILD_ID"].filter(k => !process.env[k]);
+const missing = ["TOKEN", "CLIENT_ID"].filter(k => !process.env[k]);
 if (missing.length) {
   console.error(`❌ Missing environment variables: ${missing.join(", ")}`);
   process.exit(1);
