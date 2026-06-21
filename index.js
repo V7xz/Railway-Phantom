@@ -597,21 +597,17 @@ client.once("ready", async () => {
 
   try {
     // Clear all existing commands first
-   await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: [] });
+    await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: [] });
     console.log("Old commands cleared.");
     
-    // Register commands one by one to avoid payload issues
-    for (const cmd of commands) {
-      try {
-        await rest.post(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: cmd });
-        console.log(`✅ Registered: ${cmd.name}`);
-      } catch (cmdErr) {
-        console.error(`❌ Failed: ${cmd.name} - ${cmdErr.message}`);
-      }
-    }
-    console.log("✅ All slash commands processed!");
+    // Register all commands at once
+    const result = await rest.put(
+      Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
+      { body: commands }
+    );
+    console.log(`✅ ${result.length} slash commands loaded!`);
   } catch (err) {
-    console.error("❌ Slash command error:", err.message);
+    console.error("Registration failed:", err.message);
   }
 
   // ── Ticket auto-close interval ──────────────────────────────────────────
