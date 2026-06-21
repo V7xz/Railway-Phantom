@@ -67,7 +67,7 @@ const CONFIG = {
   CURRENCY_RATE: 17000,
   BUYER_ROLE_NAME: "Subscriptions",
   COOLDOWN_MS: 3000,
-  MAX_OPEN_TICKETS_PER_USER: 2,
+  MAX_OPEN_TICKETS_PER_USER: 3,
   TRANSCRIPT_CHANNEL_NAME: "transcript"
 };
 
@@ -109,7 +109,7 @@ const PRICES = {
     "perm": 100000
   },
   fps: {
-    "perm": 35000         // ← FPS only lifetime, 35k
+    "perm": 35000
   },
   external: {
     "perm": 110000
@@ -124,7 +124,7 @@ const USD_APPROX = {
   20000: "1.25",
   25000: "1.56",
   30000: "1.88",
-  35000: "2.19",         // ← added for FPS
+  35000: "2.19",
   40000: "2.50",
   50000: "3.13",
   60000: "3.75",
@@ -143,7 +143,6 @@ function formatPriceIDRUSD(idr) {
   return `IDR ${idr.toLocaleString("id-ID")} / ${getUSDApprox(idr)}`;
 }
 
-// ── Helper to map product name to price key ─────────────────────────────
 function getProductKey(productName) {
   if (productName === "Kill Aura") return "killaura";
   if (productName === "Combat (Silent Aim)") return "combat";
@@ -267,7 +266,6 @@ function randomID(len = 10) {
   return crypto.randomBytes(len).toString("hex").slice(0, len);
 }
 
-// ── generateKey now accepts productKey to create prefixed keys ──────────
 function generateKey(productKey) {
   const prefix = PRODUCT_PREFIXES[productKey] || "XX";
   return (
@@ -437,7 +435,7 @@ function dashboardEmbed(guild) {
   refreshKeys();
   const now = Date.now();
   const totalKeys = keys.length;
-  const activeKeys = keys.filter(k => k.expires === 0 || k.expires > now).length;
+  const activeKeys = keys.filter(k => k.expires === 0 ? k.duration === 0 : k.expires > now).length;
 
   const totalOrders = orders.length;
   const pendingOrders = orders.filter(o => o.status === "waiting").length;
@@ -463,30 +461,30 @@ function pricingDetailEmbed() {
     .setTitle("💰 Product Pricing")
     .setDescription("All prices are listed in **IDR** with approximate **USD** equivalents.\n")
     .addFields(
-      { name: "⚔️ Kill Aura", value: `
+      { name: "Kill Aura", value: `
 • 1 Day: ${formatPriceIDRUSD(PRICES.killaura["1d"])}
 • 3 Days: ${formatPriceIDRUSD(PRICES.killaura["3d"])}
 • 7 Days: ${formatPriceIDRUSD(PRICES.killaura["7d"])}
 • 1 Month: ${formatPriceIDRUSD(PRICES.killaura["30d"])}
       `, inline: true },
-      { name: "🎯 Combat (Silent Aim)", value: `
+      { name: "Combat (Silent Aim)", value: `
 • 1 Day: ${formatPriceIDRUSD(PRICES.combat["1d"])}
 • 3 Days: ${formatPriceIDRUSD(PRICES.combat["3d"])}
 • 7 Days: ${formatPriceIDRUSD(PRICES.combat["7d"])}
 • 1 Month: ${formatPriceIDRUSD(PRICES.combat["30d"])}
 • Lifetime: ${formatPriceIDRUSD(PRICES.combat["perm"])}
       `, inline: true },
-      { name: "🌾 Auto Farm", value: `
+      { name: "Auto Farm", value: `
 • 1 Day: ${formatPriceIDRUSD(PRICES.autofarm["1d"])}
 • 3 Days: ${formatPriceIDRUSD(PRICES.autofarm["3d"])}
 • 7 Days: ${formatPriceIDRUSD(PRICES.autofarm["7d"])}
 • 1 Month: ${formatPriceIDRUSD(PRICES.autofarm["30d"])}
 • Lifetime: ${formatPriceIDRUSD(PRICES.autofarm["perm"])}
       `, inline: true },
-      { name: "🔫 FPS (Lifetime Only)", value: `
+      { name: "FPS (Lifetime Only)", value: `
 • Lifetime: ${formatPriceIDRUSD(PRICES.fps["perm"])}
       `, inline: true },
-      { name: "🎮 External — Roblox External", value: `
+      { name: "External — Roblox External", value: `
 • Lifetime: ${formatPriceIDRUSD(PRICES.external["perm"])}
       `, inline: false }
     )
@@ -641,7 +639,6 @@ client.on("interactionCreate", async (interaction) => {
       if (onCooldown(interaction.user.id)) return safeReply(interaction, { content: "⏳ Slow down a bit." });
       return await handleButton(interaction);
     }
-    // Select menus – no cooldown to allow quick re‑selects
     if (interaction.isStringSelectMenu()) {
       return await handleSelect(interaction);
     }
@@ -784,12 +781,12 @@ async function handleSlash(interaction) {
     if (["killaura", "combat", "autofarm", "fps"].includes(productKey)) {
       const key = generateKey(productKey);
       const seconds = parseDuration(data.duration);
-      const expires = seconds === 0 ? 0 : Date.now() + seconds * 1000;
-      keys.push({ key, product: productKey, expires, hwid: null, created: Date.now() });
+      const durationMs = seconds ? seconds * 1000 : 0;
+      keys.push({ key, product: productKey, duration: durationMs, expires: 0, hwid: null, created: Date.now() });
       saveAll();
       const loaderUrl = SCRIPT_LOADERS[productKey];
       const scriptReady = `_G.KEY = "${key}"\nloadstring(game:HttpGet("${loaderUrl}"))()`;
-      const expireText = seconds ? `Expired: ${new Date(expires).toLocaleString("id-ID")}` : "Key ini tidak akan expired (Permanent)";
+      const expireText = seconds ? `Starts when first used` : "Lifetime";
 
       approveEmbed = new EmbedBuilder()
         .setColor(COLOR_GREEN)
@@ -863,15 +860,13 @@ async function handleSlash(interaction) {
     const key         = generateKey(productKey);
 
     try {
-      const expires = seconds ? Date.now() + seconds * 1000 : 0;
-      keys.push({ key, product: productKey, expires, hwid: null, created: Date.now() });
+      const durationMs = seconds ? seconds * 1000 : 0;
+      keys.push({ key, product: productKey, duration: durationMs, expires: 0, hwid: null, created: Date.now() });
       saveAll();
 
       const loaderUrl = SCRIPT_LOADERS[productKey];
       const scriptReady = `_G.KEY = "${key}"\nloadstring(game:HttpGet("${loaderUrl}"))()`;
-      const expireText = seconds
-        ? `Expired: ${new Date(expires).toLocaleString("id-ID")}`
-        : "Key ini tidak akan expired (Permanent)";
+      const expireText = seconds ? `Starts when first used` : `Lifetime (never expires)`;
 
       const productNames = {
         killaura: "Kill Aura",
@@ -913,14 +908,17 @@ async function handleSlash(interaction) {
     refreshKeys();
     const entry = keys.find(k => k.key === key);
     if (!entry) return interaction.reply({ content: "❌ Key not found.", flags: 64 });
-    if (entry.expires === 0) {
+    if (entry.duration === 0) {
       return interaction.reply({ content: "❌ Cannot extend a permanent key.", flags: 64 });
     }
 
-    const now = Date.now();
-    const currentExpiry = entry.expires;
-    const newExpiry = currentExpiry < now ? now + addSeconds * 1000 : currentExpiry + addSeconds * 1000;
-    entry.expires = newExpiry;
+    if (entry.expires === 0) {
+      entry.duration += addSeconds * 1000;
+    } else {
+      const now = Date.now();
+      const currentExpiry = entry.expires;
+      entry.expires = currentExpiry < now ? now + addSeconds * 1000 : currentExpiry + addSeconds * 1000;
+    }
     saveAll();
 
     const embed = new EmbedBuilder()
@@ -929,8 +927,7 @@ async function handleSlash(interaction) {
       .addFields(
         { name: "Key", value: `\`${key}\`` },
         { name: "Added Time", value: formatDurasi(addSeconds), inline: true },
-        { name: "Previous Expiry", value: new Date(currentExpiry).toLocaleString("id-ID") },
-        { name: "New Expiry", value: new Date(newExpiry).toLocaleString("id-ID") }
+        { name: "Current Expiry", value: entry.expires === 0 ? "Not yet bound" : new Date(entry.expires).toLocaleString("id-ID") }
       )
       .setTimestamp();
 
@@ -948,20 +945,40 @@ async function handleSlash(interaction) {
     if (!data) return interaction.reply({ content: "❌ Key not found.", flags: 64 });
 
     const now = Date.now();
-    const isExpired = data.expires !== 0 && now > data.expires;
-    const statusText = data.expires === 0 ? "🟢 Permanent" : (isExpired ? "🔴 Expired" : "🟢 Active");
-    const expiryDisplay = data.expires === 0 ? "Never" : new Date(data.expires).toLocaleString("id-ID");
-    const relativeTime = data.expires === 0 ? "∞" : `<t:${Math.floor(data.expires / 1000)}:R>`;
+    const isUnbound = data.expires === 0 && data.duration > 0;
+    const isPermanent = data.duration === 0;
+    const isExpired = !isUnbound && !isPermanent && data.expires !== 0 && now > data.expires;
+    const isActive = !isUnbound && !isPermanent && data.expires !== 0 && now <= data.expires;
+
+    let statusText, expiryDisplay, color;
+    if (isPermanent) {
+      statusText = "🟢 Permanent";
+      expiryDisplay = "Never";
+      color = COLOR_MAIN;
+    } else if (isUnbound) {
+      statusText = "🟡 Unbound (timer not started)";
+      expiryDisplay = `Starts when first used\nDuration: ${formatDurasi(data.duration / 1000)}`;
+      color = COLOR_YELLOW;
+    } else if (isExpired) {
+      statusText = "🔴 Expired";
+      expiryDisplay = new Date(data.expires).toLocaleString("id-ID");
+      color = COLOR_RED;
+    } else {
+      statusText = "🟢 Active";
+      expiryDisplay = new Date(data.expires).toLocaleString("id-ID");
+      color = COLOR_MAIN;
+    }
 
     const embed = new EmbedBuilder()
-      .setColor(isExpired ? COLOR_RED : COLOR_MAIN)
+      .setColor(color)
       .setTitle("🔑 Key Details")
       .addFields(
         { name: "Key", value: `\`${data.key}\`` },
+        { name: "Product", value: data.product || "Unknown", inline: true },
         { name: "Created", value: new Date(data.created).toLocaleString("id-ID"), inline: true },
-        { name: "Expires", value: `${expiryDisplay}\n${relativeTime}`, inline: true },
+        { name: "Expires", value: expiryDisplay, inline: true },
         { name: "Status", value: statusText, inline: true },
-        { name: "HWID", value: data.hwid || "Not set", inline: true }
+        { name: "HWID", value: data.hwid || "Not bound", inline: true }
       )
       .setTimestamp();
 
@@ -989,7 +1006,7 @@ async function handleSlash(interaction) {
     if (!data) return interaction.reply({ content: "❌ Key not found.", flags: 64 });
     data.hwid = null;
     saveAll();
-    return interaction.reply({ content: "✅ HWID reset.", flags: 64 });
+    return interaction.reply({ content: "✅ HWID reset. Key can be bound to a new device.", flags: 64 });
   }
 
   // ── KEYLIST ──────────────────────────────────────────────────────────────
@@ -1017,12 +1034,29 @@ async function handleSlash(interaction) {
         .setFooter({ text: `${keys.length} total keys` });
 
       keyList.forEach(data => {
-        const isActive = (data.expires === 0 || data.expires > now);
-        const statusIcon = isActive ? "🟢" : "🔴";
-        const expText = data.expires === 0 ? "∞" : new Date(data.expires).toLocaleString("id-ID");
+        const isUnbound = data.expires === 0 && data.duration > 0;
+        const isPermanent = data.duration === 0;
+        const isExpired = !isUnbound && !isPermanent && data.expires !== 0 && now > data.expires;
+        const isActive = !isUnbound && !isPermanent && data.expires !== 0 && now <= data.expires;
+
+        let statusIcon, expText;
+        if (isPermanent) {
+          statusIcon = "🟢";
+          expText = "∞";
+        } else if (isUnbound) {
+          statusIcon = "🟡";
+          expText = `Unbound (${formatDurasi(data.duration / 1000)})`;
+        } else if (isExpired) {
+          statusIcon = "🔴";
+          expText = new Date(data.expires).toLocaleString("id-ID");
+        } else {
+          statusIcon = "🟢";
+          expText = new Date(data.expires).toLocaleString("id-ID");
+        }
+
         embed.addFields({
           name: `${statusIcon} ${data.key}`,
-          value: `**Expires:** ${expText}\n**HWID:** ${data.hwid || "None"}\n**Created:** ${new Date(data.created).toLocaleString("id-ID")}`,
+          value: `**Expires:** ${expText}\n**HWID:** ${data.hwid || "None"}\n**Product:** ${data.product || "N/A"}`,
           inline: false
         });
       });
@@ -1204,12 +1238,12 @@ async function handleButton(interaction) {
       if (["killaura", "combat", "autofarm", "fps"].includes(productKey)) {
         const key = generateKey(productKey);
         const seconds = parseDuration(data.duration);
-        const expires = seconds === 0 ? 0 : Date.now() + seconds * 1000;
-        keys.push({ key, product: productKey, expires, hwid: null, created: Date.now() });
+        const durationMs = seconds ? seconds * 1000 : 0;
+        keys.push({ key, product: productKey, duration: durationMs, expires: 0, hwid: null, created: Date.now() });
         saveAll();
         const loaderUrl = SCRIPT_LOADERS[productKey];
         const scriptReady = `_G.KEY = "${key}"\nloadstring(game:HttpGet("${loaderUrl}"))()`;
-        const expireText = seconds ? `Expired: ${new Date(expires).toLocaleString("id-ID")}` : "Key ini tidak akan expired (Permanent)";
+        const expireText = seconds ? `Starts when first used` : `Lifetime`;
 
         approveEmbed = new EmbedBuilder()
           .setColor(COLOR_GREEN)
@@ -1489,14 +1523,15 @@ async function handleSelect(interaction) {
     }
 
     if (category === "script") {
+      // ── Professional labels, no emojis ──────────────────────────────
       const subMenu = new StringSelectMenuBuilder()
         .setCustomId(`choose_subcategory:${ticketId}`)
         .setPlaceholder("Select script type...")
         .addOptions([
-          { label: "Kill Aura", value: "killaura", description: "Aimbot / Kill aura", emoji: "⚔️" },
-          { label: "Combat", value: "combat", description: "Silent Aim included", emoji: "🎯" },
-          { label: "Auto Farm", value: "autofarm", description: "Auto farming features", emoji: "🌾" },
-          { label: "FPS", value: "fps", description: "FPS Booster", emoji: "🔫" }
+          { label: "Kill Aura",           value: "killaura", description: "Aimbot / Kill aura" },
+          { label: "Combat (Silent Aim)", value: "combat",   description: "Silent Aim included" },
+          { label: "Auto Farm",           value: "autofarm", description: "Auto farming features" },
+          { label: "FPS",                 value: "fps",      description: "FPS Booster" }
         ]);
 
       await interaction.update({
