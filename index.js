@@ -211,19 +211,14 @@ function isAdmin(member) {
     member.roles.cache.some(r => r.name === CONFIG.ADMIN_ROLE_NAME)
   );
 }
+function isReseller(member) { return member.roles.cache.has(CONFIG.RESELLER_ROLE_ID); }
+function canGenkey(member, interaction) { return isAdmin(member) || isAdminByRole(interaction) || isReseller(member); 
+}
 
 function isAdminByRole(interaction) {
   const ADMIN_ROLE_ID = process.env.ADMIN_ROLE_ID;
   if (!ADMIN_ROLE_ID) return false;
   return interaction.member.roles.cache.has(ADMIN_ROLE_ID);
-}
-
-function isReseller(member) {
-  return member.roles.cache.has(CONFIG.RESELLER_ROLE_ID);
-}
-
-function canGenkey(member, interaction) {
-  return isAdmin(member) || isAdminByRole(interaction) || isReseller(member);
 }
 
 function parseDuration(val) {
@@ -593,12 +588,13 @@ client.once("ready", async () => {
 
   const rest = new REST({ version: "10" }).setToken(TOKEN);
   try {
+    await new Promise(resolve => setTimeout(resolve, 3000));
     await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: [] });
     await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: commands });
     console.log("Slash commands loaded.");
-  } catch (err) {
-    console.error(err);
-  }
+} catch (err) {
+    console.error("Slash command error:", err);
+}
 
   // ── Ticket auto-close interval ──────────────────────────────────────────
   setInterval(async () => {
