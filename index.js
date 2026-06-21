@@ -89,18 +89,50 @@ const COLOR_GRAY = COLORS.gray;
 
 // ── Pricing data (IDR) ──────────────────────────────────────────────────
 const PRICES = {
-  killaura: { "1d": 15000, "3d": 30000, "7d": 60000, "30d": 120000 },
-  combat:   { "1d": 12000, "3d": 25000, "7d": 50000, "30d": 80000, "perm": 100000 },
-  autofarm: { "1d": 10000, "3d": 20000, "7d": 40000, "30d": 80000, "perm": 100000 },
-  fps:      { "perm": 35000 },
-  external: { "perm": 110000 }
+  killaura: {
+    "1d": 15000,
+    "3d": 30000,
+    "7d": 60000,
+    "30d": 120000
+  },
+  combat: {
+    "1d": 12000,
+    "3d": 25000,
+    "7d": 50000,
+    "30d": 80000,
+    "perm": 100000
+  },
+  autofarm: {
+    "1d": 10000,
+    "3d": 20000,
+    "7d": 40000,
+    "30d": 80000,
+    "perm": 100000
+  },
+  fps: {
+    "perm": 35000
+  },
+  external: {
+    "perm": 110000
+  }
 };
 
 // ── USD approximations ──────────────────────────────────────────────────
 const USD_APPROX = {
-  10000: "0.63", 12000: "0.75", 15000: "0.94", 20000: "1.25", 25000: "1.56",
-  30000: "1.88", 35000: "2.19", 40000: "2.50", 50000: "3.13", 60000: "3.75",
-  80000: "5.00", 100000: "6.25", 110000: "6.88", 120000: "7.50"
+  10000: "0.63",
+  12000: "0.75",
+  15000: "0.94",
+  20000: "1.25",
+  25000: "1.56",
+  30000: "1.88",
+  35000: "2.19",
+  40000: "2.50",
+  50000: "3.13",
+  60000: "3.75",
+  80000: "5.00",
+  100000: "6.25",
+  110000: "6.88",
+  120000: "7.50"
 };
 
 function getUSDApprox(idr) {
@@ -156,7 +188,11 @@ for (const file of Object.values(FILES)) {
 }
 
 function readJSON(file) {
-  try { return JSON.parse(fs.readFileSync(file, "utf8")); } catch { return []; }
+  try {
+    return JSON.parse(fs.readFileSync(file, "utf8"));
+  } catch {
+    return [];
+  }
 }
 
 function writeJSON(file, data) {
@@ -520,36 +556,116 @@ const commands = [
     .addBooleanOption(o => o.setName("embed").setDescription("Send as embed?").setRequired(false))
     .addStringOption(o => o.setName("title").setDescription("Embed title (if embed=true)").setRequired(false))
     .addStringOption(o => o.setName("color").setDescription("Embed color hex (e.g., #57f287)").setRequired(false)),
-  new SlashCommandBuilder().setName("accept").setDescription("Approve payment in this ticket"),
-  new SlashCommandBuilder().setName("reject").setDescription("Reject payment in this ticket")
+  new SlashCommandBuilder()
+    .setName("accept")
+    .setDescription("Approve payment in this ticket"),
+  new SlashCommandBuilder()
+    .setName("reject")
+    .setDescription("Reject payment in this ticket")
     .addStringOption(o => o.setName("reason").setDescription("Reason").setRequired(false)),
   new SlashCommandBuilder()
-    .setName("genkey").setDescription("Generate script key")
-    .addStringOption(o => o.setName("product").setDescription("Select script type").setRequired(true)
-      .addChoices({ name:"Kill Aura", value:"killaura" }, { name:"Combat (Silent Aim)", value:"combat" }, { name:"Auto Farm", value:"autofarm" }, { name:"FPS", value:"fps" }))
-    .addStringOption(o => o.setName("duration").setDescription("Key duration").setRequired(true)
-      .addChoices({ name:"1 Hour", value:"1h" }, { name:"3 Hours", value:"3h" }, { name:"6 Hours", value:"6h" }, { name:"12 Hours", value:"12h" }, { name:"1 Day", value:"1d" }, { name:"3 Days", value:"3d" }, { name:"7 Days", value:"7d" }, { name:"30 Days", value:"30d" }, { name:"Lifetime", value:"perm" })),
+    .setName("genkey")
+    .setDescription("Generate script key")
+    .addStringOption(o =>
+      o.setName("product")
+        .setDescription("Select script type")
+        .setRequired(true)
+        .addChoices(
+          { name: "Kill Aura", value: "killaura" },
+          { name: "Combat (Silent Aim)", value: "combat" },
+          { name: "Auto Farm", value: "autofarm" },
+          { name: "FPS", value: "fps" }
+        )
+    )
+    .addStringOption(o =>
+      o.setName("duration").setDescription("Key duration").setRequired(true)
+        .addChoices(
+          { name: "1 Hour",    value: "1h"   },
+          { name: "3 Hours",   value: "3h"   },
+          { name: "6 Hours",   value: "6h"   },
+          { name: "12 Hours",  value: "12h"  },
+          { name: "1 Day",     value: "1d"   },
+          { name: "3 Days",    value: "3d"   },
+          { name: "7 Days",    value: "7d"   },
+          { name: "30 Days",   value: "30d"  },
+          { name: "Lifetime",  value: "perm" }
+        )
+    ),
   new SlashCommandBuilder()
-    .setName("extendkey").setDescription("Extend key duration")
+    .setName("extendkey")
+    .setDescription("Extend key duration")
     .addStringOption(o => o.setName("key").setDescription("Key to extend").setRequired(true))
-    .addStringOption(o => o.setName("duration").setDescription("Duration to add").setRequired(true)
-      .addChoices({ name:"1 Hour", value:"1h" }, { name:"3 Hours", value:"3h" }, { name:"6 Hours", value:"6h" }, { name:"12 Hours", value:"12h" }, { name:"1 Day", value:"1d" }, { name:"3 Days", value:"3d" }, { name:"7 Days", value:"7d" }, { name:"30 Days", value:"30d" })),
-  new SlashCommandBuilder().setName("revokekey").setDescription("Delete key").addStringOption(o => o.setName("key").setDescription("Key").setRequired(true)),
-  new SlashCommandBuilder().setName("checkkey").setDescription("Check key (admin)").addStringOption(o => o.setName("key").setDescription("Key").setRequired(true)),
-  new SlashCommandBuilder().setName("resethwid").setDescription("Reset HWID (admin)").addStringOption(o => o.setName("key").setDescription("Key").setRequired(true)),
-  new SlashCommandBuilder().setName("keylist").setDescription("List all keys (admin)"),
+    .addStringOption(o =>
+      o.setName("duration").setDescription("Duration to add").setRequired(true)
+        .addChoices(
+          { name: "1 Hour",    value: "1h"   },
+          { name: "3 Hours",   value: "3h"   },
+          { name: "6 Hours",   value: "6h"   },
+          { name: "12 Hours",  value: "12h"  },
+          { name: "1 Day",     value: "1d"   },
+          { name: "3 Days",    value: "3d"   },
+          { name: "7 Days",    value: "7d"   },
+          { name: "30 Days",   value: "30d"  }
+        )
+    ),
+  new SlashCommandBuilder()
+    .setName("revokekey")
+    .setDescription("Delete key")
+    .addStringOption(o => o.setName("key").setDescription("Key").setRequired(true)),
+  new SlashCommandBuilder()
+    .setName("checkkey")
+    .setDescription("Check key (admin)")
+    .addStringOption(o => o.setName("key").setDescription("Key").setRequired(true)),
+  new SlashCommandBuilder()
+    .setName("resethwid")
+    .setDescription("Reset HWID (admin)")
+    .addStringOption(o => o.setName("key").setDescription("Key").setRequired(true)),
+  new SlashCommandBuilder()
+    .setName("keylist")
+    .setDescription("List all keys (admin)"),
   new SlashCommandBuilder()
     .setName("checkmykey")
     .setDescription("Check any key")
     .addStringOption(o => o.setName("key").setDescription("Key").setRequired(true)),
   new SlashCommandBuilder()
-    .setName("setuptrials").setDescription("Send a trial claim panel")
-    .addStringOption(o => o.setName("product").setDescription("Which script to give as trial").setRequired(true)
-      .addChoices({ name:"Kill Aura", value:"killaura" }, { name:"Combat (Silent Aim)", value:"combat" }, { name:"Auto Farm", value:"autofarm" }, { name:"FPS", value:"fps" }))
-    .addStringOption(o => o.setName("duration").setDescription("Trial duration").setRequired(true)
-      .addChoices({ name:"1 Hour", value:"1h" }, { name:"3 Hours", value:"3h" }, { name:"6 Hours", value:"6h" }, { name:"12 Hours", value:"12h" }, { name:"1 Day", value:"1d" }, { name:"3 Days", value:"3d" }, { name:"7 Days", value:"7d" }))
-    .addStringOption(o => o.setName("expires").setDescription("How long the claim button stays active").setRequired(true)
-      .addChoices({ name:"1 Hour", value:"1h" }, { name:"3 Hours", value:"3h" }, { name:"6 Hours", value:"6h" }, { name:"12 Hours", value:"12h" }, { name:"1 Day", value:"1d" }, { name:"2 Days", value:"2d" }, { name:"3 Days", value:"3d" }, { name:"7 Days", value:"7d" }))
+    .setName("setuptrials")
+    .setDescription("Send a trial claim panel")
+    .addStringOption(o =>
+      o.setName("product")
+        .setDescription("Which script to give as trial")
+        .setRequired(true)
+        .addChoices(
+          { name: "Kill Aura", value: "killaura" },
+          { name: "Combat (Silent Aim)", value: "combat" },
+          { name: "Auto Farm", value: "autofarm" },
+          { name: "FPS", value: "fps" }
+        )
+    )
+    .addStringOption(o =>
+      o.setName("duration").setDescription("Trial duration").setRequired(true)
+        .addChoices(
+          { name: "1 Hour",    value: "1h"   },
+          { name: "3 Hours",   value: "3h"   },
+          { name: "6 Hours",   value: "6h"   },
+          { name: "12 Hours",  value: "12h"  },
+          { name: "1 Day",     value: "1d"   },
+          { name: "3 Days",    value: "3d"   },
+          { name: "7 Days",    value: "7d"   }
+        )
+    )
+    .addStringOption(o =>
+      o.setName("expires").setDescription("How long the claim button stays active").setRequired(true)
+        .addChoices(
+          { name: "1 Hour",   value: "1h"  },
+          { name: "3 Hours",  value: "3h"  },
+          { name: "6 Hours",  value: "6h"  },
+          { name: "12 Hours", value: "12h" },
+          { name: "1 Day",    value: "1d"  },
+          { name: "2 Days",   value: "2d"  },
+          { name: "3 Days",   value: "3d"  },
+          { name: "7 Days",   value: "7d"  }
+        )
+    )
 ].map(x => x.toJSON());
 
 /* =====================================================
@@ -1536,12 +1652,13 @@ async function handleModal(interaction) {
 
   if (customId === "modal_trial_resethwid") {
     const key = interaction.fields.getTextInputValue("key_input").trim();
-    const data = keys.find(k => k.key === key) || global.trialKeys.find(k => k.key === key);
-    if (!data) return interaction.reply({ content: "❌ Key not found.", flags: 64 });
+    // Only look in trial keys, not disk keys
+    const data = global.trialKeys.find(k => k.key === key);
+    if (!data) return interaction.reply({ content: "❌ Key not found or not a trial key.", flags: 64 });
     if (data.userId !== user.id) return interaction.reply({ content: "❌ This key does not belong to you.", flags: 64 });
 
     data.hwid = null;
-    if (keys.includes(data)) saveAll();
+    // No need to saveAll() because trial keys are in memory only
     return interaction.reply({ content: "✅ HWID reset. The key can now be bound to a new device.", flags: 64 });
   }
 
@@ -1952,10 +2069,6 @@ async function handleSelect(interaction) {
     });
   }
 }
-
-/* =====================================================
-   MODAL HANDLER (already included above)
-===================================================== */
 
 /* =====================================================
    MESSAGE TRACKING FOR TRANSCRIPTS
