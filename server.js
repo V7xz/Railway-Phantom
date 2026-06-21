@@ -39,7 +39,8 @@ function writeOrders(data) {
 const PREFIX_MAP = {
     killaura: "KA",
     combat: "CB",
-    autofarm: "AF"
+    autofarm: "AF",
+    fps: "FP"
 };
 
 /* =====================================================
@@ -107,7 +108,6 @@ app.post("/api/verify-user", async (req, res) => {
     if (!username) {
         return res.json({ success: false, message: "Username required" });
     }
-    // The bot client is exposed globally from index.js
     if (!global.botClient) {
         return res.json({ success: false, message: "Bot not ready" });
     }
@@ -150,20 +150,18 @@ app.post("/api/create-ticket", async (req, res) => {
         if (!guild) {
             return res.json({ success: false, message: "Guild not found" });
         }
-        // Create ticket channel
         const member = await guild.members.fetch(userId).catch(() => null);
         if (!member) {
             return res.json({ success: false, message: "User not found in server" });
         }
         const channel = await guild.channels.create({
             name: `order-${member.user.username}`.substring(0, 28).toLowerCase(),
-            type: 0, // GuildText
+            type: 0,
             permissionOverwrites: [
-                { id: guild.id, deny: [1024] }, // ViewChannel
-                { id: userId, allow: [1024, 2048] } // ViewChannel, SendMessages
+                { id: guild.id, deny: [1024] },
+                { id: userId, allow: [1024, 2048] }
             ]
         });
-        // Build order object
         const orderData = {
             orderId: orderId || `PH-${Date.now().toString(36).toUpperCase()}`,
             channelId: channel.id,
@@ -187,20 +185,18 @@ app.post("/api/create-ticket", async (req, res) => {
             })),
             total: total
         };
-        // Save order
         let orders = readOrders();
         orders.push(orderData);
         writeOrders(orders);
 
-        // Import Discord.js dynamically
         const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require("discord.js");
 
-        // Send payment instructions in ticket
         const embed = new EmbedBuilder()
             .setColor(0x7b2cff)
             .setTitle(`🛒 Order #${orderData.orderId}`)
             .setDescription(`Welcome ${username}! Please follow the instructions below to complete your purchase.`)
-            .addFields({ name: "Items", value: cart.map(i => `${i.productName} (${i.durationLabel}) × ${i.quantity}`).join("\n"), inline: false },
+            .addFields(
+                { name: "Items", value: cart.map(i => `${i.productName} (${i.durationLabel}) × ${i.quantity}`).join("\n"), inline: false },
                 { name: "Total", value: `Rp ${total.toLocaleString("id-ID")}`, inline: true },
                 { name: "Payment Method", value: paymentMethod.toUpperCase(), inline: true },
                 { name: "Step 1", value: "Pay using the method below.", inline: false },
@@ -222,7 +218,6 @@ app.post("/api/create-ticket", async (req, res) => {
             ]
         });
 
-        // Send PayPal info separately
         const paypalEmbed = new EmbedBuilder()
             .setColor(0x7b2cff)
             .setTitle("💳 PayPal Payment")
