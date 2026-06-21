@@ -44,7 +44,7 @@ const SCRIPT_LOADERS = {
   killaura: process.env.LOADER_KILLAURA || "https://vss.pandauth.com/virtual/file/027fc82a484946ef",
   combat:   process.env.LOADER_COMBAT   || "https://vss.pandauth.com/virtual/file/027fc82a484946ef",
   autofarm: process.env.LOADER_AUTOFARM || "https://vss.pandauth.com/virtual/file/027fc82a484946ef",
-  fps:      process.env.LOADER_FPS      || "https://vss.pandauth.com/virtual/file/027fc82a484946ef"  // ← Placeholder, change later
+  fps:      process.env.LOADER_FPS      || "https://vss.pandauth.com/virtual/file/027fc82a484946ef"  // placeholder, change later
 };
 
 // ── Product prefixes for key generation ─────────────────────────────────
@@ -109,11 +109,7 @@ const PRICES = {
     "perm": 100000
   },
   fps: {
-    "1d": 10000,
-    "3d": 20000,
-    "7d": 40000,
-    "30d": 80000,
-    "perm": 100000
+    "perm": 35000         // ← FPS only lifetime, 35k
   },
   external: {
     "perm": 110000
@@ -128,6 +124,7 @@ const USD_APPROX = {
   20000: "1.25",
   25000: "1.56",
   30000: "1.88",
+  35000: "2.19",         // ← added for FPS
   40000: "2.50",
   50000: "3.13",
   60000: "3.75",
@@ -486,11 +483,7 @@ function pricingDetailEmbed() {
 • 1 Month: ${formatPriceIDRUSD(PRICES.autofarm["30d"])}
 • Lifetime: ${formatPriceIDRUSD(PRICES.autofarm["perm"])}
       `, inline: true },
-      { name: "🔫 FPS", value: `
-• 1 Day: ${formatPriceIDRUSD(PRICES.fps["1d"])}
-• 3 Days: ${formatPriceIDRUSD(PRICES.fps["3d"])}
-• 7 Days: ${formatPriceIDRUSD(PRICES.fps["7d"])}
-• 1 Month: ${formatPriceIDRUSD(PRICES.fps["30d"])}
+      { name: "🔫 FPS (Lifetime Only)", value: `
 • Lifetime: ${formatPriceIDRUSD(PRICES.fps["perm"])}
       `, inline: true },
       { name: "🎮 External — Roblox External", value: `
