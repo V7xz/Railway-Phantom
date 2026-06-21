@@ -69,7 +69,7 @@ const CONFIG = {
   COOLDOWN_MS: 3000,
   MAX_OPEN_TICKETS_PER_USER: 10,
   TRANSCRIPT_CHANNEL_NAME: "transcript",
-  UNBOUND_KEY_TTL_DAYS: 7
+  UNBOUND_KEY_TTL_DAYS: 7          // auto-delete unbound keys after 7 days
 };
 
 const COLORS = {
@@ -89,50 +89,18 @@ const COLOR_GRAY = COLORS.gray;
 
 // ── Pricing data (IDR) ──────────────────────────────────────────────────
 const PRICES = {
-  killaura: {
-    "1d": 15000,
-    "3d": 30000,
-    "7d": 60000,
-    "30d": 120000
-  },
-  combat: {
-    "1d": 12000,
-    "3d": 25000,
-    "7d": 50000,
-    "30d": 80000,
-    "perm": 100000
-  },
-  autofarm: {
-    "1d": 10000,
-    "3d": 20000,
-    "7d": 40000,
-    "30d": 80000,
-    "perm": 100000
-  },
-  fps: {
-    "perm": 35000
-  },
-  external: {
-    "perm": 110000
-  }
+  killaura: { "1d": 15000, "3d": 30000, "7d": 60000, "30d": 120000 },
+  combat:   { "1d": 12000, "3d": 25000, "7d": 50000, "30d": 80000, "perm": 100000 },
+  autofarm: { "1d": 10000, "3d": 20000, "7d": 40000, "30d": 80000, "perm": 100000 },
+  fps:      { "perm": 35000 },
+  external: { "perm": 110000 }
 };
 
 // ── USD approximations ──────────────────────────────────────────────────
 const USD_APPROX = {
-  10000: "0.63",
-  12000: "0.75",
-  15000: "0.94",
-  20000: "1.25",
-  25000: "1.56",
-  30000: "1.88",
-  35000: "2.19",
-  40000: "2.50",
-  50000: "3.13",
-  60000: "3.75",
-  80000: "5.00",
-  100000: "6.25",
-  110000: "6.88",
-  120000: "7.50"
+  10000: "0.63", 12000: "0.75", 15000: "0.94", 20000: "1.25", 25000: "1.56",
+  30000: "1.88", 35000: "2.19", 40000: "2.50", 50000: "3.13", 60000: "3.75",
+  80000: "5.00", 100000: "6.25", 110000: "6.88", 120000: "7.50"
 };
 
 function getUSDApprox(idr) {
@@ -188,11 +156,7 @@ for (const file of Object.values(FILES)) {
 }
 
 function readJSON(file) {
-  try {
-    return JSON.parse(fs.readFileSync(file, "utf8"));
-  } catch {
-    return [];
-  }
+  try { return JSON.parse(fs.readFileSync(file, "utf8")); } catch { return []; }
 }
 
 function writeJSON(file, data) {
@@ -556,115 +520,36 @@ const commands = [
     .addBooleanOption(o => o.setName("embed").setDescription("Send as embed?").setRequired(false))
     .addStringOption(o => o.setName("title").setDescription("Embed title (if embed=true)").setRequired(false))
     .addStringOption(o => o.setName("color").setDescription("Embed color hex (e.g., #57f287)").setRequired(false)),
-  new SlashCommandBuilder()
-    .setName("accept")
-    .setDescription("Approve payment in this ticket"),
-  new SlashCommandBuilder()
-    .setName("reject")
-    .setDescription("Reject payment in this ticket")
+  new SlashCommandBuilder().setName("accept").setDescription("Approve payment in this ticket"),
+  new SlashCommandBuilder().setName("reject").setDescription("Reject payment in this ticket")
     .addStringOption(o => o.setName("reason").setDescription("Reason").setRequired(false)),
   new SlashCommandBuilder()
-    .setName("genkey")
-    .setDescription("Generate script key")
-    .addStringOption(o =>
-      o.setName("product")
-        .setDescription("Select script type")
-        .setRequired(true)
-        .addChoices(
-          { name: "Kill Aura", value: "killaura" },
-          { name: "Combat (Silent Aim)", value: "combat" },
-          { name: "Auto Farm", value: "autofarm" },
-          { name: "FPS", value: "fps" }
-        )
-    )
-    .addStringOption(o =>
-      o.setName("duration").setDescription("Key duration").setRequired(true)
-        .addChoices(
-          { name: "1 Hour",    value: "1h"   },
-          { name: "3 Hours",   value: "3h"   },
-          { name: "6 Hours",   value: "6h"   },
-          { name: "12 Hours",  value: "12h"  },
-          { name: "1 Day",     value: "1d"   },
-          { name: "3 Days",    value: "3d"   },
-          { name: "7 Days",    value: "7d"   },
-          { name: "30 Days",   value: "30d"  },
-          { name: "Lifetime",  value: "perm" }
-        )
-    ),
+    .setName("genkey").setDescription("Generate script key")
+    .addStringOption(o => o.setName("product").setDescription("Select script type").setRequired(true)
+      .addChoices({ name:"Kill Aura", value:"killaura" }, { name:"Combat (Silent Aim)", value:"combat" }, { name:"Auto Farm", value:"autofarm" }, { name:"FPS", value:"fps" }))
+    .addStringOption(o => o.setName("duration").setDescription("Key duration").setRequired(true)
+      .addChoices({ name:"1 Hour", value:"1h" }, { name:"3 Hours", value:"3h" }, { name:"6 Hours", value:"6h" }, { name:"12 Hours", value:"12h" }, { name:"1 Day", value:"1d" }, { name:"3 Days", value:"3d" }, { name:"7 Days", value:"7d" }, { name:"30 Days", value:"30d" }, { name:"Lifetime", value:"perm" })),
   new SlashCommandBuilder()
-    .setName("extendkey")
-    .setDescription("Extend key duration")
+    .setName("extendkey").setDescription("Extend key duration")
     .addStringOption(o => o.setName("key").setDescription("Key to extend").setRequired(true))
-    .addStringOption(o =>
-      o.setName("duration").setDescription("Duration to add").setRequired(true)
-        .addChoices(
-          { name: "1 Hour",    value: "1h"   },
-          { name: "3 Hours",   value: "3h"   },
-          { name: "6 Hours",   value: "6h"   },
-          { name: "12 Hours",  value: "12h"  },
-          { name: "1 Day",     value: "1d"   },
-          { name: "3 Days",    value: "3d"   },
-          { name: "7 Days",    value: "7d"   },
-          { name: "30 Days",   value: "30d"  }
-        )
-    ),
+    .addStringOption(o => o.setName("duration").setDescription("Duration to add").setRequired(true)
+      .addChoices({ name:"1 Hour", value:"1h" }, { name:"3 Hours", value:"3h" }, { name:"6 Hours", value:"6h" }, { name:"12 Hours", value:"12h" }, { name:"1 Day", value:"1d" }, { name:"3 Days", value:"3d" }, { name:"7 Days", value:"7d" }, { name:"30 Days", value:"30d" })),
+  new SlashCommandBuilder().setName("revokekey").setDescription("Delete key").addStringOption(o => o.setName("key").setDescription("Key").setRequired(true)),
+  new SlashCommandBuilder().setName("checkkey").setDescription("Check key (admin)").addStringOption(o => o.setName("key").setDescription("Key").setRequired(true)),
+  new SlashCommandBuilder().setName("resethwid").setDescription("Reset HWID (admin)").addStringOption(o => o.setName("key").setDescription("Key").setRequired(true)),
+  new SlashCommandBuilder().setName("keylist").setDescription("List all keys (admin)"),
   new SlashCommandBuilder()
-    .setName("revokekey")
-    .setDescription("Delete key")
+    .setName("checkmykey")
+    .setDescription("Check any key")
     .addStringOption(o => o.setName("key").setDescription("Key").setRequired(true)),
   new SlashCommandBuilder()
-    .setName("checkkey")
-    .setDescription("Check key")
-    .addStringOption(o => o.setName("key").setDescription("Key").setRequired(true)),
-  new SlashCommandBuilder()
-    .setName("resethwid")
-    .setDescription("Reset HWID")
-    .addStringOption(o => o.setName("key").setDescription("Key").setRequired(true)),
-  new SlashCommandBuilder()
-    .setName("keylist")
-    .setDescription("List all keys (paginated)"),
-  new SlashCommandBuilder()
-    .setName("mykeys")
-    .setDescription("View your own keys"),
-  new SlashCommandBuilder()
-    .setName("setuptrials")
-    .setDescription("Send a trial claim panel")
-    .addStringOption(o =>
-      o.setName("product")
-        .setDescription("Which script to give as trial")
-        .setRequired(true)
-        .addChoices(
-          { name: "Kill Aura", value: "killaura" },
-          { name: "Combat (Silent Aim)", value: "combat" },
-          { name: "Auto Farm", value: "autofarm" },
-          { name: "FPS", value: "fps" }
-        )
-    )
-    .addStringOption(o =>
-      o.setName("duration").setDescription("Trial duration").setRequired(true)
-        .addChoices(
-          { name: "1 Hour",    value: "1h"   },
-          { name: "3 Hours",   value: "3h"   },
-          { name: "6 Hours",   value: "6h"   },
-          { name: "12 Hours",  value: "12h"  },
-          { name: "1 Day",     value: "1d"   },
-          { name: "3 Days",    value: "3d"   },
-          { name: "7 Days",    value: "7d"   }
-        )
-    )
-    .addStringOption(o =>
-      o.setName("expires").setDescription("How long the claim button stays active").setRequired(true)
-        .addChoices(
-          { name: "1 Hour",   value: "1h"  },
-          { name: "3 Hours",  value: "3h"  },
-          { name: "6 Hours",  value: "6h"  },
-          { name: "12 Hours", value: "12h" },
-          { name: "1 Day",    value: "1d"  },
-          { name: "2 Days",   value: "2d"  },
-          { name: "3 Days",   value: "3d"  },
-          { name: "7 Days",   value: "7d"  }
-        )
-    )
+    .setName("setuptrials").setDescription("Send a trial claim panel")
+    .addStringOption(o => o.setName("product").setDescription("Which script to give as trial").setRequired(true)
+      .addChoices({ name:"Kill Aura", value:"killaura" }, { name:"Combat (Silent Aim)", value:"combat" }, { name:"Auto Farm", value:"autofarm" }, { name:"FPS", value:"fps" }))
+    .addStringOption(o => o.setName("duration").setDescription("Trial duration").setRequired(true)
+      .addChoices({ name:"1 Hour", value:"1h" }, { name:"3 Hours", value:"3h" }, { name:"6 Hours", value:"6h" }, { name:"12 Hours", value:"12h" }, { name:"1 Day", value:"1d" }, { name:"3 Days", value:"3d" }, { name:"7 Days", value:"7d" }))
+    .addStringOption(o => o.setName("expires").setDescription("How long the claim button stays active").setRequired(true)
+      .addChoices({ name:"1 Hour", value:"1h" }, { name:"3 Hours", value:"3h" }, { name:"6 Hours", value:"6h" }, { name:"12 Hours", value:"12h" }, { name:"1 Day", value:"1d" }, { name:"2 Days", value:"2d" }, { name:"3 Days", value:"3d" }, { name:"7 Days", value:"7d" }))
 ].map(x => x.toJSON());
 
 /* =====================================================
@@ -724,12 +609,10 @@ client.once("ready", async () => {
     const beforeCount = keys.length;
 
     keys = keys.filter(k => {
-      // Remove bound expired keys immediately
       if (k.expires !== 0 && k.duration > 0 && now > k.expires) {
         console.log(`[CLEANUP] Removing expired key ${k.key}`);
         return false;
       }
-      // Remove unbound keys older than 7 days
       if (k.expires === 0 && k.duration > 0 && now - (k.created || 0) > ttl) {
         console.log(`[CLEANUP] Removing unbound key ${k.key} – older than 7 days`);
         return false;
@@ -741,20 +624,20 @@ client.once("ready", async () => {
       saveAll();
       console.log(`[CLEANUP] Removed ${beforeCount - keys.length} keys (expired/unbound)`);
     }
-  }, 24 * 60 * 60 * 1000);   // every 24 hours
+  }, 24 * 60 * 60 * 1000);
 
   // ── Cleanup expired trial keys from memory ────────────────────────────
   setInterval(() => {
     const now = Date.now();
     const before = global.trialKeys.length;
     global.trialKeys = global.trialKeys.filter(k => {
-      if (k.expires !== 0 && now > k.expires) return false;  // expired
+      if (k.expires !== 0 && now > k.expires) return false;
       return true;
     });
     if (global.trialKeys.length < before) {
       console.log(`[TRIAL CLEANUP] Removed ${before - global.trialKeys.length} expired trial keys`);
     }
-  }, 60 * 60 * 1000);   // every hour
+  }, 60 * 60 * 1000);
 });
 
 /* =====================================================
@@ -1186,9 +1069,11 @@ async function handleSlash(interaction) {
           expText = new Date(data.expires).toLocaleString("id-ID");
         }
 
+        const ownerText = data.userId ? `<@${data.userId}>` : "None";
+
         embed.addFields({
           name: `${statusIcon} ${data.key}`,
-          value: `**Expires:** ${expText}\n**HWID:** ${data.hwid || "None"}\n**Product:** ${data.product || "N/A"}`,
+          value: `**Expires:** ${expText}\n**HWID:** ${data.hwid || "None"}\n**Product:** ${data.product || "N/A"}\n**Owner:** ${ownerText}`,
           inline: false
         });
       });
@@ -1240,37 +1125,79 @@ async function handleSlash(interaction) {
     return;
   }
 
-  // ── NEW: /mykeys ──────────────────────────────────────────────────────
-  if (commandName === "mykeys") {
+  // ── /checkmykey (public, with automatic binding) ─────────────────────
+  if (commandName === "checkmykey") {
+    const key = options.getString("key");
     const userId = interaction.user.id;
+
     refreshKeys();
-    const userKeys = keys.filter(k => k.userId === userId && !k.trial);
-    if (userKeys.length === 0) {
-      return interaction.reply({ content: "You have no keys associated with your account.", flags: 64 });
+    // Search in disk keys first (paid keys)
+    const diskIndex = keys.findIndex(k => k.key === key);
+    let data = null;
+    let isTrialKey = false;
+
+    if (diskIndex !== -1) {
+      data = keys[diskIndex];
+      // Bind Discord ID if not already set (only for paid keys)
+      if (!data.userId) {
+        data.userId = userId;
+        keys[diskIndex] = data;
+        saveAll();
+        console.log(`[BIND] Key ${key} bound to Discord user ${userId}`);
+      }
+    } else {
+      // Search in trial keys (no binding)
+      const trialEntry = global.trialKeys.find(k => k.key === key);
+      if (trialEntry) {
+        data = trialEntry;
+        isTrialKey = true;
+      }
+    }
+
+    if (!data) return interaction.reply({ content: "❌ Key not found.", flags: 64 });
+
+    const now = Date.now();
+    const isUnbound = data.expires === 0 && data.duration > 0;
+    const isPermanent = data.duration === 0;
+    const isExpired = !isUnbound && !isPermanent && data.expires !== 0 && now > data.expires;
+    const isActive = !isUnbound && !isPermanent && data.expires !== 0 && now <= data.expires;
+
+    let statusText, expiryDisplay, color;
+    if (isPermanent) {
+      statusText = "🟢 Permanent";
+      expiryDisplay = "Never";
+      color = COLOR_MAIN;
+    } else if (isUnbound) {
+      statusText = "🟡 Unbound (timer not started)";
+      expiryDisplay = `Starts when first used\nDuration: ${formatDurasi(data.duration / 1000)}`;
+      color = COLOR_YELLOW;
+    } else if (isExpired) {
+      statusText = "🔴 Expired";
+      expiryDisplay = new Date(data.expires).toLocaleString("id-ID");
+      color = COLOR_RED;
+    } else {
+      statusText = "🟢 Active";
+      expiryDisplay = new Date(data.expires).toLocaleString("id-ID");
+      color = COLOR_MAIN;
     }
 
     const embed = new EmbedBuilder()
-      .setColor(COLOR_MAIN)
-      .setTitle("🔑 Your Keys")
-      .setDescription(`Found **${userKeys.length}** key(s).`);
+      .setColor(color)
+      .setTitle("🔑 Key Details")
+      .addFields(
+        { name: "Key", value: `\`${data.key}\`` },
+        { name: "Product", value: data.product || "Unknown", inline: true },
+        { name: "Created", value: new Date(data.created).toLocaleString("id-ID"), inline: true },
+        { name: "Expires", value: expiryDisplay, inline: true },
+        { name: "Status", value: statusText, inline: true },
+        { name: "HWID", value: data.hwid || "Not bound", inline: true }
+      )
+      .setTimestamp();
 
-    for (const k of userKeys.slice(0, 25)) {
-      let status;
-      if (k.duration === 0) status = "🟢 Lifetime";
-      else if (k.expires === 0) status = "🟡 Unused";
-      else if (Date.now() > k.expires) status = "🔴 Expired";
-      else status = "🟢 Active";
-
-      embed.addFields({
-        name: `${status} ${k.key}`,
-        value: `**Product:** ${k.product || "N/A"}\n**Expires:** ${k.expires === 0 ? (k.duration > 0 ? "Unbound" : "Never") : new Date(k.expires).toLocaleString()}`,
-        inline: false
-      });
-    }
     return interaction.reply({ embeds: [embed], flags: 64 });
   }
 
-  // ── NEW: /setuptrials ─────────────────────────────────────────────────
+  // ── /setuptrials (admin only, unchanged) ──────────────────────────────
   if (commandName === "setuptrials") {
     if (!isAdmin(member)) return safeReply(interaction, { content: "No permission." });
 
@@ -1291,11 +1218,9 @@ async function handleSlash(interaction) {
       .setFooter({ text: "One trial per user." });
 
     const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId(`claim_trial`)
-        .setLabel("Claim Trial Key")
-        .setStyle(ButtonStyle.Success)
-        .setEmoji("🎁")
+      new ButtonBuilder().setCustomId("trial_redeem").setLabel("Redeem Trial Key").setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId("trial_loadstring").setLabel("Get Loadstring").setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId("trial_resethwid").setLabel("Reset HWID").setStyle(ButtonStyle.Secondary)
     );
 
     const msg = await channel.send({ embeds: [embed], components: [row] });
@@ -1308,16 +1233,16 @@ async function handleSlash(interaction) {
       durationMs: seconds * 1000,
       expiresAt: expireAt
     });
-    saveAll();  // only panel configs
+    saveAll();
 
     setTimeout(async () => {
       try {
-        const fetchedMsg = await channel.messages.fetch(msg.id).catch(() => null);
-        if (fetchedMsg) {
-          await fetchedMsg.edit({ components: [] });
-          const expiredEmbed = EmbedBuilder.from(fetchedMsg.embeds[0])
+        const fetched = await channel.messages.fetch(msg.id).catch(() => null);
+        if (fetched) {
+          await fetched.edit({ components: [] });
+          const expiredEmbed = EmbedBuilder.from(fetched.embeds[0])
             .setFooter({ text: "Trial claim period has ended." });
-          await fetchedMsg.edit({ embeds: [expiredEmbed] });
+          await fetched.edit({ embeds: [expiredEmbed] });
         }
       } catch (e) {
         console.error("[TRIAL EXPIRE] Error updating message:", e);
@@ -1335,37 +1260,55 @@ async function handleSlash(interaction) {
 async function handleButton(interaction) {
   const { customId, guild, user, member, channel } = interaction;
 
-  if (customId === "claim_trial") {
+  if (customId === "trial_redeem") {
     const trial = trials.find(t => t.messageId === interaction.message.id);
     if (!trial) return safeReply(interaction, { content: "This trial panel is no longer valid." });
-
-    if (Date.now() > trial.expiresAt) {
-      return interaction.reply({ content: "❌ This trial offer has expired.", flags: 64 });
-    }
+    if (Date.now() > trial.expiresAt) return interaction.reply({ content: "❌ This trial offer has expired.", flags: 64 });
 
     const userId = user.id;
     const alreadyClaimed = keys.some(k => k.userId === userId && k.trial === true) ||
                            global.trialKeys.some(k => k.userId === userId);
-    if (alreadyClaimed) {
-      return interaction.reply({ content: "❌ You have already claimed a trial key before.", flags: 64 });
-    }
+    if (alreadyClaimed) return interaction.reply({ content: "❌ You have already claimed a trial key before.", flags: 64 });
 
     const key = createKey(trial.product, trial.durationMs, userId, true);
-    const loaderUrl = SCRIPT_LOADERS[trial.product];
-    const scriptReady = `_G.KEY = "${key}"\nloadstring(game:HttpGet("${loaderUrl}"))()`;
-    const productNames = { killaura: "Kill Aura", combat: "Combat (Silent Aim)", autofarm: "Auto Farm", fps: "FPS" };
+    await channel.send({ content: `<@${userId}> here is your trial key:\n\`\`\`${key}\`\`\`` });
+    return interaction.reply({ content: "✅ Your trial key has been sent in the chat!", flags: 64 });
+  }
 
-    const embed = new EmbedBuilder()
-      .setColor(COLOR_GREEN)
-      .setTitle("🎁 Your Trial Key")
-      .setDescription(`**Product:** ${productNames[trial.product]}\n**Duration:** ${formatDurasi(trial.durationMs / 1000)}`)
-      .addFields(
-        { name: "Key", value: "```" + key + "```" },
-        { name: "Script - Copy Paste ke Madium", value: "```lua\n" + scriptReady + "\n```" }
-      )
-      .setFooter({ text: "Key starts when first used." });
+  if (customId === "trial_loadstring") {
+    return interaction.showModal(
+      new ModalBuilder()
+        .setCustomId("modal_trial_loadstring")
+        .setTitle("Get Loadstring")
+        .addComponents(
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId("key_input")
+              .setLabel("Enter your key")
+              .setStyle(TextInputStyle.Short)
+              .setRequired(true)
+              .setMaxLength(50)
+          )
+        )
+    );
+  }
 
-    return interaction.reply({ embeds: [embed], flags: 64 });
+  if (customId === "trial_resethwid") {
+    return interaction.showModal(
+      new ModalBuilder()
+        .setCustomId("modal_trial_resethwid")
+        .setTitle("Reset HWID")
+        .addComponents(
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId("key_input")
+              .setLabel("Enter your key")
+              .setStyle(TextInputStyle.Short)
+              .setRequired(true)
+              .setMaxLength(50)
+          )
+        )
+    );
   }
 
   if (customId === "open_support") {
@@ -1405,10 +1348,6 @@ async function handleButton(interaction) {
       ]
     });
     return safeReply(interaction, { content: `✅ Support ticket created: ${ch}` });
-  }
-
-  if (customId === "view_prices") {
-    return interaction.reply({ embeds: [pricingDetailEmbed()], flags: 64 });
   }
 
   if (customId === "close_support") {
@@ -1574,6 +1513,90 @@ async function handleButton(interaction) {
           )
         )
     );
+  }
+}
+
+/* =====================================================
+   MODAL HANDLER
+===================================================== */
+
+async function handleModal(interaction) {
+  const { customId, guild, user } = interaction;
+
+  if (customId === "modal_trial_loadstring") {
+    const key = interaction.fields.getTextInputValue("key_input").trim();
+    const data = keys.find(k => k.key === key) || global.trialKeys.find(k => k.key === key);
+    if (!data) return interaction.reply({ content: "❌ Key not found.", flags: 64 });
+    if (data.userId !== user.id) return interaction.reply({ content: "❌ This key does not belong to you.", flags: 64 });
+
+    const loaderUrl = SCRIPT_LOADERS[data.product] || "https://example.com/script";
+    const scriptReady = `_G.KEY = "${key}"\nloadstring(game:HttpGet("${loaderUrl}"))()`;
+    return interaction.reply({ content: `Your loadstring:\n\`\`\`lua\n${scriptReady}\n\`\`\``, flags: 64 });
+  }
+
+  if (customId === "modal_trial_resethwid") {
+    const key = interaction.fields.getTextInputValue("key_input").trim();
+    const data = keys.find(k => k.key === key) || global.trialKeys.find(k => k.key === key);
+    if (!data) return interaction.reply({ content: "❌ Key not found.", flags: 64 });
+    if (data.userId !== user.id) return interaction.reply({ content: "❌ This key does not belong to you.", flags: 64 });
+
+    data.hwid = null;
+    if (keys.includes(data)) saveAll();
+    return interaction.reply({ content: "✅ HWID reset. The key can now be bound to a new device.", flags: 64 });
+  }
+
+  if (customId.startsWith("modal_reject:")) {
+    const [, ticketId] = customId.split(":");
+    const reason = interaction.fields.getTextInputValue("reason");
+    const data = findOrder(ticketId);
+    if (!data) return safeReply(interaction, { content: "Order not found." });
+    data.status = "rejected";
+    data.rejectedAt = Date.now();
+    data.rejectedBy = user.id;
+    data.rejectionReason = reason;
+    saveAll();
+    trackMessage(ticketId, "SYSTEM", `[REJECTED] Order rejected by ${user.tag}. Reason: ${reason}`);
+    const targetCh = guild.channels.cache.get(ticketId);
+    if (targetCh) {
+      targetCh.send({
+        content: `<@${data.userId}>`,
+        embeds: [
+          new EmbedBuilder()
+            .setColor(COLOR_RED)
+            .setTitle("❌ Order Rejected")
+            .setDescription(`Reason: ${reason}`)
+        ]
+      });
+    }
+    return safeReply(interaction, { content: `❌ Order #${data.orderId} rejected.` });
+  }
+
+  if (customId.startsWith("modal_review:")) {
+    const [, ticketId] = customId.split(":");
+    const rating = interaction.fields.getTextInputValue("rating").trim();
+    const reviewText = interaction.fields.getTextInputValue("review_text").trim();
+    const stars = parseInt(rating, 10);
+    if (isNaN(stars) || stars < 1 || stars > 5) return safeReply(interaction, { content: "Rating must be 1–5." });
+    const starStr = "⭐".repeat(stars) + "☆".repeat(5 - stars);
+    const data = findOrder(ticketId);
+    const reviewCh = reviewChannelId ? guild.channels.cache.get(reviewChannelId) : guild.channels.cache.find(c => c.name === "reviews");
+    trackMessage(ticketId, user.tag, `[REVIEW] ${stars}/5 — ${reviewText}`);
+
+    if (reviewCh) {
+      const reviewEmbed = new EmbedBuilder()
+        .setColor(COLOR_YELLOW)
+        .setTitle(`${starStr} New Review`)
+        .setDescription(`> ${reviewText}`)
+        .addFields(
+          { name: "Reviewer", value: `<@${user.id}>`, inline: true },
+          { name: "Product", value: data?.product || "Unknown", inline: true }
+        )
+        .setFooter({ text: `Order #${data?.orderId || "N/A"}` })
+        .setTimestamp();
+
+      reviewCh.send({ embeds: [reviewEmbed] }).catch(() => {});
+    }
+    return safeReply(interaction, { content: `✅ Thanks for your review! ${starStr}` });
   }
 }
 
@@ -1931,66 +1954,8 @@ async function handleSelect(interaction) {
 }
 
 /* =====================================================
-   MODAL HANDLER
+   MODAL HANDLER (already included above)
 ===================================================== */
-
-async function handleModal(interaction) {
-  const { customId, guild, user } = interaction;
-
-  if (customId.startsWith("modal_reject:")) {
-    const [, ticketId] = customId.split(":");
-    const reason = interaction.fields.getTextInputValue("reason");
-    const data = findOrder(ticketId);
-    if (!data) return safeReply(interaction, { content: "Order not found." });
-    data.status = "rejected";
-    data.rejectedAt = Date.now();
-    data.rejectedBy = user.id;
-    data.rejectionReason = reason;
-    saveAll();
-    trackMessage(ticketId, "SYSTEM", `[REJECTED] Order rejected by ${user.tag}. Reason: ${reason}`);
-    const targetCh = guild.channels.cache.get(ticketId);
-    if (targetCh) {
-      targetCh.send({
-        content: `<@${data.userId}>`,
-        embeds: [
-          new EmbedBuilder()
-            .setColor(COLOR_RED)
-            .setTitle("❌ Order Rejected")
-            .setDescription(`Reason: ${reason}`)
-        ]
-      });
-    }
-    return safeReply(interaction, { content: `❌ Order #${data.orderId} rejected.` });
-  }
-
-  if (customId.startsWith("modal_review:")) {
-    const [, ticketId] = customId.split(":");
-    const rating = interaction.fields.getTextInputValue("rating").trim();
-    const reviewText = interaction.fields.getTextInputValue("review_text").trim();
-    const stars = parseInt(rating, 10);
-    if (isNaN(stars) || stars < 1 || stars > 5) return safeReply(interaction, { content: "Rating must be 1–5." });
-    const starStr = "⭐".repeat(stars) + "☆".repeat(5 - stars);
-    const data = findOrder(ticketId);
-    const reviewCh = reviewChannelId ? guild.channels.cache.get(reviewChannelId) : guild.channels.cache.find(c => c.name === "reviews");
-    trackMessage(ticketId, user.tag, `[REVIEW] ${stars}/5 — ${reviewText}`);
-
-    if (reviewCh) {
-      const reviewEmbed = new EmbedBuilder()
-        .setColor(COLOR_YELLOW)
-        .setTitle(`${starStr} New Review`)
-        .setDescription(`> ${reviewText}`)
-        .addFields(
-          { name: "Reviewer", value: `<@${user.id}>`, inline: true },
-          { name: "Product", value: data?.product || "Unknown", inline: true }
-        )
-        .setFooter({ text: `Order #${data?.orderId || "N/A"}` })
-        .setTimestamp();
-
-      reviewCh.send({ embeds: [reviewEmbed] }).catch(() => {});
-    }
-    return safeReply(interaction, { content: `✅ Thanks for your review! ${starStr}` });
-  }
-}
 
 /* =====================================================
    MESSAGE TRACKING FOR TRANSCRIPTS
