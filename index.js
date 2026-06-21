@@ -67,8 +67,9 @@ const CONFIG = {
   CURRENCY_RATE: 17000,
   BUYER_ROLE_NAME: "Subscriptions",
   COOLDOWN_MS: 3000,
-  MAX_OPEN_TICKETS_PER_USER: 3,
-  TRANSCRIPT_CHANNEL_NAME: "transcript"
+  MAX_OPEN_TICKETS_PER_USER: 10,
+  TRANSCRIPT_CHANNEL_NAME: "transcript",
+  UNBOUND_KEY_TTL_DAYS: 7
 };
 
 const COLORS = {
@@ -176,13 +177,14 @@ const FILES = {
   keys: path.join(DATA_DIR, "keys.json"),
   reviews: path.join(DATA_DIR, "reviews.json"),
   logs: path.join(DATA_DIR, "logs.json"),
-  transcript: path.join(DATA_DIR, "transcripts.json")
+  transcript: path.join(DATA_DIR, "transcripts.json"),
+  trials: path.join(DATA_DIR, "trials.json")          // only panel configs
 };
 
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR);
 
 for (const file of Object.values(FILES)) {
-  if (!fs.existsSync(file)) fs.writeFileSync(file, "[]");
+  if (!fs.existsSync(file)) fs.writeFileSync(file, file.endsWith("trials.json") ? "[]" : "[]");
 }
 
 function readJSON(file) {
@@ -202,6 +204,10 @@ let keys = readJSON(FILES.keys);
 let reviews = readJSON(FILES.reviews);
 let logs = readJSON(FILES.logs);
 let transcripts = readJSON(FILES.transcript);
+let trials = readJSON(FILES.trials);   // only panel configs
+
+// ── IN‑MEMORY TRIAL KEYS (never written to disk) ──────────────────────
+global.trialKeys = [];
 
 let logChannelId = null;
 let reviewChannelId = null;
@@ -266,6 +272,7 @@ function randomID(len = 10) {
   return crypto.randomBytes(len).toString("hex").slice(0, len);
 }
 
+// ── Regular key generation (stored on disk) ─────────────────────────────
 function generateKey(productKey) {
   const prefix = PRODUCT_PREFIXES[productKey] || "XX";
   return (
@@ -277,12 +284,47 @@ function generateKey(productKey) {
   );
 }
 
+// ── Trial key generation (in‑memory only) ───────────────────────────────
+function generateTrialKey() {
+  return (
+    "KAFREE-" +
+    randomID(4).toUpperCase() + "-" +
+    randomID(4).toUpperCase() + "-" +
+    randomID(4).toUpperCase() + "-" +
+    randomID(4).toUpperCase()
+  );
+}
+
+// ── Centralised key creation (always includes userId) ─────────────────
+function createKey(productKey, durationMs, userId, isTrial = false) {
+  const key = isTrial ? generateTrialKey() : generateKey(productKey);
+  const entry = {
+    key,
+    product: productKey,
+    duration: durationMs,
+    expires: 0,
+    hwid: null,
+    userId: userId,
+    created: Date.now(),
+    trial: isTrial || false
+  };
+
+  if (isTrial) {
+    global.trialKeys.push(entry);
+  } else {
+    keys.push(entry);
+    saveAll();
+  }
+  return key;
+}
+
 function saveAll() {
   writeJSON(FILES.orders, orders);
   writeJSON(FILES.keys, keys);
   writeJSON(FILES.reviews, reviews);
   writeJSON(FILES.logs, logs);
   writeJSON(FILES.transcript, transcripts);
+  writeJSON(FILES.trials, trials);
 }
 
 function findOrder(channelId) {
@@ -434,8 +476,9 @@ function supportPanel() {
 function dashboardEmbed(guild) {
   refreshKeys();
   const now = Date.now();
-  const totalKeys = keys.length;
-  const activeKeys = keys.filter(k => k.expires === 0 ? k.duration === 0 : k.expires > now).length;
+  const totalKeys = keys.length + global.trialKeys.length;
+  const activeKeys = keys.filter(k => k.expires === 0 ? k.duration === 0 : k.expires > now).length +
+                     global.trialKeys.filter(k => k.expires === 0 ? k.duration === 0 : k.expires > now).length;
 
   const totalOrders = orders.length;
   const pendingOrders = orders.filter(o => o.status === "waiting").length;
@@ -580,6 +623,48 @@ const commands = [
   new SlashCommandBuilder()
     .setName("keylist")
     .setDescription("List all keys (paginated)"),
+  new SlashCommandBuilder()
+    .setName("mykeys")
+    .setDescription("View your own keys"),
+  new SlashCommandBuilder()
+    .setName("setuptrials")
+    .setDescription("Send a trial claim panel")
+    .addStringOption(o =>
+      o.setName("product")
+        .setDescription("Which script to give as trial")
+        .setRequired(true)
+        .addChoices(
+          { name: "Kill Aura", value: "killaura" },
+          { name: "Combat (Silent Aim)", value: "combat" },
+          { name: "Auto Farm", value: "autofarm" },
+          { name: "FPS", value: "fps" }
+        )
+    )
+    .addStringOption(o =>
+      o.setName("duration").setDescription("Trial duration").setRequired(true)
+        .addChoices(
+          { name: "1 Hour",    value: "1h"   },
+          { name: "3 Hours",   value: "3h"   },
+          { name: "6 Hours",   value: "6h"   },
+          { name: "12 Hours",  value: "12h"  },
+          { name: "1 Day",     value: "1d"   },
+          { name: "3 Days",    value: "3d"   },
+          { name: "7 Days",    value: "7d"   }
+        )
+    )
+    .addStringOption(o =>
+      o.setName("expires").setDescription("How long the claim button stays active").setRequired(true)
+        .addChoices(
+          { name: "1 Hour",   value: "1h"  },
+          { name: "3 Hours",  value: "3h"  },
+          { name: "6 Hours",  value: "6h"  },
+          { name: "12 Hours", value: "12h" },
+          { name: "1 Day",    value: "1d"  },
+          { name: "2 Days",   value: "2d"  },
+          { name: "3 Days",   value: "3d"  },
+          { name: "7 Days",   value: "7d"  }
+        )
+    )
 ].map(x => x.toJSON());
 
 /* =====================================================
@@ -603,6 +688,7 @@ client.once("ready", async () => {
     console.error(err);
   }
 
+  // ── Ticket auto-close interval ──────────────────────────────────────────
   setInterval(async () => {
     const now = Date.now();
     for (const data of orders) {
@@ -623,9 +709,52 @@ client.once("ready", async () => {
         ]
       }).catch(() => {});
       await sendTranscript(ch.guild, data.channelId, ch.name, null);
-      await ch.setName(`expired-${ch.name.split("-").pop()}`).catch(() => {});
+      try {
+        await ch.delete();
+      } catch (err) {
+        console.error(`[AUTO-CLOSE] Could not delete channel ${ch.name}:`, err.message);
+      }
     }
   }, 30 * 60 * 1000);
+
+  // ── Auto-cleanup of unbound keys (7 days) AND expired bound keys ─────
+  setInterval(() => {
+    const now = Date.now();
+    const ttl = CONFIG.UNBOUND_KEY_TTL_DAYS * 86400 * 1000;
+    const beforeCount = keys.length;
+
+    keys = keys.filter(k => {
+      // Remove bound expired keys immediately
+      if (k.expires !== 0 && k.duration > 0 && now > k.expires) {
+        console.log(`[CLEANUP] Removing expired key ${k.key}`);
+        return false;
+      }
+      // Remove unbound keys older than 7 days
+      if (k.expires === 0 && k.duration > 0 && now - (k.created || 0) > ttl) {
+        console.log(`[CLEANUP] Removing unbound key ${k.key} – older than 7 days`);
+        return false;
+      }
+      return true;
+    });
+
+    if (keys.length < beforeCount) {
+      saveAll();
+      console.log(`[CLEANUP] Removed ${beforeCount - keys.length} keys (expired/unbound)`);
+    }
+  }, 24 * 60 * 60 * 1000);   // every 24 hours
+
+  // ── Cleanup expired trial keys from memory ────────────────────────────
+  setInterval(() => {
+    const now = Date.now();
+    const before = global.trialKeys.length;
+    global.trialKeys = global.trialKeys.filter(k => {
+      if (k.expires !== 0 && now > k.expires) return false;  // expired
+      return true;
+    });
+    if (global.trialKeys.length < before) {
+      console.log(`[TRIAL CLEANUP] Removed ${before - global.trialKeys.length} expired trial keys`);
+    }
+  }, 60 * 60 * 1000);   // every hour
 });
 
 /* =====================================================
@@ -735,11 +864,28 @@ async function handleSlash(interaction) {
     saveAll();
     trackMessage(channel.id, "SYSTEM", `[CLOSED] Ticket closed by ${interaction.user.tag}`);
     await sendTranscript(guild, channel.id, channel.name, interaction.user.id);
+
     await interaction.reply({
       embeds: [new EmbedBuilder().setColor(COLOR_GRAY).setDescription("🚫 Ticket closed. Transcript saved. Deleting in 5 seconds...")],
       flags: 64
     });
-    setTimeout(() => channel.delete().catch(() => {}), 5000);
+
+    const ch = guild.channels.cache.get(channel.id);
+    if (ch) {
+      setTimeout(async () => {
+        try {
+          await ch.delete();
+        } catch (err) {
+          console.error(`[CLOSE] Failed to delete channel ${ch.name}:`, err.message);
+          try {
+            await interaction.followUp({
+              content: `⚠️ Could not delete the channel automatically. Please delete it manually. (${err.message})`,
+              flags: 64
+            });
+          } catch {}
+        }
+      }, 5000);
+    }
     return;
   }
 
@@ -779,11 +925,9 @@ async function handleSlash(interaction) {
     let approveEmbed;
     const productKey = getProductKey(data.product);
     if (["killaura", "combat", "autofarm", "fps"].includes(productKey)) {
-      const key = generateKey(productKey);
       const seconds = parseDuration(data.duration);
       const durationMs = seconds ? seconds * 1000 : 0;
-      keys.push({ key, product: productKey, duration: durationMs, expires: 0, hwid: null, created: Date.now() });
-      saveAll();
+      const key = createKey(productKey, durationMs, data.userId);
       const loaderUrl = SCRIPT_LOADERS[productKey];
       const scriptReady = `_G.KEY = "${key}"\nloadstring(game:HttpGet("${loaderUrl}"))()`;
       const expireText = seconds ? `Starts when first used` : "Lifetime";
@@ -857,45 +1001,36 @@ async function handleSlash(interaction) {
     const productKey = interaction.options.getString("product");
     const durasiStr   = interaction.options.getString("duration") || "1d";
     const seconds     = parseDuration(durasiStr);
-    const key         = generateKey(productKey);
+    const durationMs  = seconds ? seconds * 1000 : 0;
 
-    try {
-      const durationMs = seconds ? seconds * 1000 : 0;
-      keys.push({ key, product: productKey, duration: durationMs, expires: 0, hwid: null, created: Date.now() });
-      saveAll();
+    const key = createKey(productKey, durationMs, interaction.user.id);
+    const loaderUrl = SCRIPT_LOADERS[productKey];
+    const scriptReady = `_G.KEY = "${key}"\nloadstring(game:HttpGet("${loaderUrl}"))()`;
+    const expireText = seconds ? `Starts when first used` : `Lifetime`;
 
-      const loaderUrl = SCRIPT_LOADERS[productKey];
-      const scriptReady = `_G.KEY = "${key}"\nloadstring(game:HttpGet("${loaderUrl}"))()`;
-      const expireText = seconds ? `Starts when first used` : `Lifetime (never expires)`;
+    const productNames = {
+      killaura: "Kill Aura",
+      combat: "Combat (Silent Aim)",
+      autofarm: "Auto Farm",
+      fps: "FPS"
+    };
 
-      const productNames = {
-        killaura: "Kill Aura",
-        combat: "Combat (Silent Aim)",
-        autofarm: "Auto Farm",
-        fps: "FPS"
-      };
+    const embed = new EmbedBuilder()
+      .setTitle("✅ Key Berhasil Di-generate!")
+      .setColor(0x00ff99)
+      .addFields(
+        { name: "Produk", value: productNames[productKey], inline: true },
+        { name: "Key", value: "```" + key + "```" },
+        { name: "Durasi", value: formatDurasi(seconds), inline: true },
+        { name: "Expired", value: expireText, inline: true },
+        { name: "Script - Copy Paste ke Madium", value: "```lua\n" + scriptReady + "\n```" }
+      )
+      .setTimestamp()
+      .setFooter({ text: `Di-generate oleh ${interaction.user.tag}` });
 
-      const embed = new EmbedBuilder()
-        .setTitle("✅ Key Berhasil Di-generate!")
-        .setColor(0x00ff99)
-        .addFields(
-          { name: "Produk", value: productNames[productKey], inline: true },
-          { name: "Key", value: "```" + key + "```" },
-          { name: "Durasi", value: formatDurasi(seconds), inline: true },
-          { name: "Expired", value: expireText, inline: true },
-          { name: "Script - Copy Paste ke Madium", value: "```lua\n" + scriptReady + "\n```" }
-        )
-        .setTimestamp()
-        .setFooter({ text: `Di-generate oleh ${interaction.user.tag}` });
-
-      return interaction.editReply({ embeds: [embed] });
-    } catch (err) {
-      console.error("[GENKEY]", err);
-      return interaction.editReply({ content: "❌ Gagal menyimpan key. Cek console." });
-    }
+    return interaction.editReply({ embeds: [embed] });
   }
 
-  // ── EXTENDKEY ────────────────────────────────────────────────────────────
   if (commandName === "extendkey") {
     if (!isAdmin(member) && !isAdminByRole(interaction))
       return interaction.reply({ content: "No permission.", flags: 64 });
@@ -934,14 +1069,13 @@ async function handleSlash(interaction) {
     return interaction.reply({ embeds: [embed], flags: 64 });
   }
 
-  // ── CHECKKEY ─────────────────────────────────────────────────────────────
   if (commandName === "checkkey") {
     if (!isAdmin(member) && !isAdminByRole(interaction))
       return interaction.reply({ content: "No permission.", flags: 64 });
 
     const key = options.getString("key");
     refreshKeys();
-    const data = keys.find(k => k.key === key);
+    const data = keys.find(k => k.key === key) || global.trialKeys.find(k => k.key === key);
     if (!data) return interaction.reply({ content: "❌ Key not found.", flags: 64 });
 
     const now = Date.now();
@@ -985,7 +1119,6 @@ async function handleSlash(interaction) {
     return interaction.reply({ embeds: [embed], flags: 64 });
   }
 
-  // ── REVOKEKEY ────────────────────────────────────────────────────────────
   if (commandName === "revokekey") {
     if (!isAdmin(member) && !isAdminByRole(interaction))
       return interaction.reply({ content: "No permission.", flags: 64 });
@@ -997,30 +1130,29 @@ async function handleSlash(interaction) {
     return interaction.reply({ content: "✅ Key revoked.", flags: 64 });
   }
 
-  // ── RESETHWID ────────────────────────────────────────────────────────────
   if (commandName === "resethwid") {
     if (!isAdmin(member) && !isAdminByRole(interaction))
       return interaction.reply({ content: "No permission.", flags: 64 });
     const key = options.getString("key");
-    const data = keys.find(k => k.key === key);
+    const data = keys.find(k => k.key === key) || global.trialKeys.find(k => k.key === key);
     if (!data) return interaction.reply({ content: "❌ Key not found.", flags: 64 });
     data.hwid = null;
     saveAll();
     return interaction.reply({ content: "✅ HWID reset. Key can be bound to a new device.", flags: 64 });
   }
 
-  // ── KEYLIST ──────────────────────────────────────────────────────────────
   if (commandName === "keylist") {
     if (!isAdmin(member) && !isAdminByRole(interaction))
       return interaction.reply({ content: "No permission.", flags: 64 });
 
     refreshKeys();
-    if (keys.length === 0) return interaction.reply({ content: "📭 No keys in database.", flags: 64 });
+    const allKeys = [...keys];   // only disk keys, no trial keys
+    if (allKeys.length === 0) return interaction.reply({ content: "📭 No keys in database.", flags: 64 });
 
     const itemsPerPage = 10;
     const pages = [];
-    for (let i = 0; i < keys.length; i += itemsPerPage) {
-      pages.push(keys.slice(i, i + itemsPerPage));
+    for (let i = 0; i < allKeys.length; i += itemsPerPage) {
+      pages.push(allKeys.slice(i, i + itemsPerPage));
     }
 
     let currentPage = 0;
@@ -1031,7 +1163,7 @@ async function handleSlash(interaction) {
       const embed = new EmbedBuilder()
         .setColor(COLOR_MAIN)
         .setTitle(`🔑 Key List (Page ${page + 1}/${pages.length})`)
-        .setFooter({ text: `${keys.length} total keys` });
+        .setFooter({ text: `${allKeys.length} total keys` });
 
       keyList.forEach(data => {
         const isUnbound = data.expires === 0 && data.duration > 0;
@@ -1107,6 +1239,93 @@ async function handleSlash(interaction) {
 
     return;
   }
+
+  // ── NEW: /mykeys ──────────────────────────────────────────────────────
+  if (commandName === "mykeys") {
+    const userId = interaction.user.id;
+    refreshKeys();
+    const userKeys = keys.filter(k => k.userId === userId && !k.trial);
+    if (userKeys.length === 0) {
+      return interaction.reply({ content: "You have no keys associated with your account.", flags: 64 });
+    }
+
+    const embed = new EmbedBuilder()
+      .setColor(COLOR_MAIN)
+      .setTitle("🔑 Your Keys")
+      .setDescription(`Found **${userKeys.length}** key(s).`);
+
+    for (const k of userKeys.slice(0, 25)) {
+      let status;
+      if (k.duration === 0) status = "🟢 Lifetime";
+      else if (k.expires === 0) status = "🟡 Unused";
+      else if (Date.now() > k.expires) status = "🔴 Expired";
+      else status = "🟢 Active";
+
+      embed.addFields({
+        name: `${status} ${k.key}`,
+        value: `**Product:** ${k.product || "N/A"}\n**Expires:** ${k.expires === 0 ? (k.duration > 0 ? "Unbound" : "Never") : new Date(k.expires).toLocaleString()}`,
+        inline: false
+      });
+    }
+    return interaction.reply({ embeds: [embed], flags: 64 });
+  }
+
+  // ── NEW: /setuptrials ─────────────────────────────────────────────────
+  if (commandName === "setuptrials") {
+    if (!isAdmin(member)) return safeReply(interaction, { content: "No permission." });
+
+    const productKey = options.getString("product");
+    const durStr = options.getString("duration");
+    const expireStr = options.getString("expires");
+
+    const seconds = parseDuration(durStr);
+    const expireSeconds = parseDuration(expireStr);
+    const expireAt = Date.now() + expireSeconds * 1000;
+
+    const productNames = { killaura: "Kill Aura", combat: "Combat (Silent Aim)", autofarm: "Auto Farm", fps: "FPS" };
+
+    const embed = new EmbedBuilder()
+      .setColor(COLOR_MAIN)
+      .setTitle("🎁 Free Trial")
+      .setDescription(`**Product:** ${productNames[productKey]}\n**Key Duration:** ${durationLabel(durStr)}\n**Claim available until:** <t:${Math.floor(expireAt / 1000)}:R>`)
+      .setFooter({ text: "One trial per user." });
+
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`claim_trial`)
+        .setLabel("Claim Trial Key")
+        .setStyle(ButtonStyle.Success)
+        .setEmoji("🎁")
+    );
+
+    const msg = await channel.send({ embeds: [embed], components: [row] });
+
+    trials.push({
+      messageId: msg.id,
+      channelId: channel.id,
+      guildId: guild.id,
+      product: productKey,
+      durationMs: seconds * 1000,
+      expiresAt: expireAt
+    });
+    saveAll();  // only panel configs
+
+    setTimeout(async () => {
+      try {
+        const fetchedMsg = await channel.messages.fetch(msg.id).catch(() => null);
+        if (fetchedMsg) {
+          await fetchedMsg.edit({ components: [] });
+          const expiredEmbed = EmbedBuilder.from(fetchedMsg.embeds[0])
+            .setFooter({ text: "Trial claim period has ended." });
+          await fetchedMsg.edit({ embeds: [expiredEmbed] });
+        }
+      } catch (e) {
+        console.error("[TRIAL EXPIRE] Error updating message:", e);
+      }
+    }, expireSeconds * 1000);
+
+    return safeReply(interaction, { content: `✅ Trial panel sent! It will expire <t:${Math.floor(expireAt / 1000)}:R>.` });
+  }
 }
 
 /* =====================================================
@@ -1115,7 +1334,39 @@ async function handleSlash(interaction) {
 
 async function handleButton(interaction) {
   const { customId, guild, user, member, channel } = interaction;
-  activityMap.set(channel.id, Date.now());
+
+  if (customId === "claim_trial") {
+    const trial = trials.find(t => t.messageId === interaction.message.id);
+    if (!trial) return safeReply(interaction, { content: "This trial panel is no longer valid." });
+
+    if (Date.now() > trial.expiresAt) {
+      return interaction.reply({ content: "❌ This trial offer has expired.", flags: 64 });
+    }
+
+    const userId = user.id;
+    const alreadyClaimed = keys.some(k => k.userId === userId && k.trial === true) ||
+                           global.trialKeys.some(k => k.userId === userId);
+    if (alreadyClaimed) {
+      return interaction.reply({ content: "❌ You have already claimed a trial key before.", flags: 64 });
+    }
+
+    const key = createKey(trial.product, trial.durationMs, userId, true);
+    const loaderUrl = SCRIPT_LOADERS[trial.product];
+    const scriptReady = `_G.KEY = "${key}"\nloadstring(game:HttpGet("${loaderUrl}"))()`;
+    const productNames = { killaura: "Kill Aura", combat: "Combat (Silent Aim)", autofarm: "Auto Farm", fps: "FPS" };
+
+    const embed = new EmbedBuilder()
+      .setColor(COLOR_GREEN)
+      .setTitle("🎁 Your Trial Key")
+      .setDescription(`**Product:** ${productNames[trial.product]}\n**Duration:** ${formatDurasi(trial.durationMs / 1000)}`)
+      .addFields(
+        { name: "Key", value: "```" + key + "```" },
+        { name: "Script - Copy Paste ke Madium", value: "```lua\n" + scriptReady + "\n```" }
+      )
+      .setFooter({ text: "Key starts when first used." });
+
+    return interaction.reply({ embeds: [embed], flags: 64 });
+  }
 
   if (customId === "open_support") {
     const openCount = orders.filter(o => o.userId === user.id && ["payment", "waiting", "approved"].includes(o.status)).length;
@@ -1165,7 +1416,7 @@ async function handleButton(interaction) {
     trackMessage(channel.id, "SYSTEM", `[CLOSED] Support ticket closed by ${user.tag}`);
     await sendTranscript(guild, channel.id, channel.name, user.id);
     await interaction.reply({ content: "🚫 Transcript saved. Deleting in 5 seconds...", flags: 64 });
-    setTimeout(() => channel.delete().catch(() => {}), 5000);
+    setTimeout(() => channel.delete().catch(err => console.error("[CLOSE_SUPPORT]", err.message)), 5000);
     return;
   }
 
@@ -1236,11 +1487,9 @@ async function handleButton(interaction) {
       let approveEmbed;
       const productKey = getProductKey(data.product);
       if (["killaura", "combat", "autofarm", "fps"].includes(productKey)) {
-        const key = generateKey(productKey);
         const seconds = parseDuration(data.duration);
         const durationMs = seconds ? seconds * 1000 : 0;
-        keys.push({ key, product: productKey, duration: durationMs, expires: 0, hwid: null, created: Date.now() });
-        saveAll();
+        const key = createKey(productKey, durationMs, data.userId);
         const loaderUrl = SCRIPT_LOADERS[productKey];
         const scriptReady = `_G.KEY = "${key}"\nloadstring(game:HttpGet("${loaderUrl}"))()`;
         const expireText = seconds ? `Starts when first used` : `Lifetime`;
@@ -1523,7 +1772,6 @@ async function handleSelect(interaction) {
     }
 
     if (category === "script") {
-      // ── Professional labels, no emojis ──────────────────────────────
       const subMenu = new StringSelectMenuBuilder()
         .setCustomId(`choose_subcategory:${ticketId}`)
         .setPlaceholder("Select script type...")
@@ -1606,7 +1854,9 @@ async function handleSelect(interaction) {
           .setColor(COLOR_MAIN)
           .setTitle("🏦 QRIS Payment")
           .setDescription(qris.instructions)
-          .addFields({ name: "Amount", value: `${moneyIDR(price)}\n${getUSDApprox(price)}`, inline: true })
+          .addFields(
+            { name: "Amount", value: `${moneyIDR(price)}\n${getUSDApprox(price)}`, inline: true }
+          )
           .setImage(qris.image)
       ]
     });
