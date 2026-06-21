@@ -35,7 +35,7 @@ const TOKEN = process.env.TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
 const GUILD_ID = process.env.GUILD_ID;
 const BANNER_URL = process.env.BANNER_URL || "";
-const QRIS_IMAGE = process.env.QRIS_IMAGE || "https://cdn.discordapp.com/attachments/1491728132661842061/1509192479906463826/04892FED-AE6F-469C-BAF6-BE2FBA1E57D7.jpg?ex=6a184886&is=6a16f706&hm=a74b14de9a8142ef50ec51cfac390ca9a77d4d7cb856b0a7fba2213e08e21972&";
+const QRIS_IMAGE = process.env.QRIS_IMAGE || "https://cdn.discordapp.com/attachments/1491728132661842061/1518227874425868328/b538a174-f19c-41c2-bd31-93f7c99e5a3b.jpg?ex=6a392764&is=6a37d5e4&hm=c7e658233bf13f62a423f8f456a946fcd53d51b0d1317d7609cf4cc1f63f16ec&";
 const PAYPAL_EMAIL = process.env.PAYPAL_EMAIL || "phantom.wtfff@gmail.com";
 const LTC_TEXT = process.env.LTC_TEXT || "Unavailable";
 
@@ -67,7 +67,7 @@ const CONFIG = {
   CURRENCY_RATE: 17000,
   BUYER_ROLE_NAME: "Subscriptions",
   COOLDOWN_MS: 3000,
-  MAX_OPEN_TICKETS_PER_USER: 10,
+  MAX_OPEN_TICKETS_PER_USER: 2,
   TRANSCRIPT_CHANNEL_NAME: "transcript"
 };
 
