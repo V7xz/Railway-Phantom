@@ -78,7 +78,7 @@ const CONFIG = {
   COOLDOWN_MS: 3000,
   MAX_OPEN_TICKETS_PER_USER: 10,
   TRANSCRIPT_CHANNEL_NAME: "transcript",
-  UNBOUND_KEY_TTL_DAYS: 7          // auto-delete unbound keys after 7 days
+  UNBOUND_KEY_TTL_DAYS: 7
 };
 
 const COLORS = {
@@ -212,12 +212,14 @@ function isAdmin(member) {
   );
 }
 function isReseller(member) { return member.roles.cache.has(CONFIG.RESELLER_ROLE_ID); }
-function canGenkey(member, interaction) { return isAdmin(member) || isAdminByRole(interaction) || isReseller(member); 
+function canGenkey(member, interaction) { 
+  return isAdmin(member) || isAdminByRole(interaction) || isReseller(member); 
 }
 
 function isAdminByRole(interaction) {
   const ADMIN_ROLE_ID = process.env.ADMIN_ROLE_ID;
   if (!ADMIN_ROLE_ID) return false;
+  if (!interaction || !interaction.member) return false;
   return interaction.member.roles.cache.has(ADMIN_ROLE_ID);
 }
 
@@ -247,8 +249,8 @@ function formatDurasi(detik) {
   if (!detik) return "Permanent";
   const jam  = Math.floor(detik / 3600);
   const hari = Math.floor(jam / 24);
-  if (hari >= 1) return `${hari} hari`;
-  return `${jam} jam`;
+  if (hari >= 1) return `${hari} days`;
+  return `${jam} hours`;
 }
 
 function randomID(len = 10) {
@@ -297,7 +299,7 @@ function createKey(productKey, durationMs, userId, isTrial = false) {
     global.trialKeys.push(entry);
   } else {
     keys.push(entry);
-     saveAll();
+    saveAll();
   }
   return key;
 }
@@ -440,8 +442,8 @@ Pertanyaan mengenai pembayaran melalui jalur lain atau masalah pembayaran umum.
 Purchase a $6 PayPal gift card by Rewarble and send it to us /
 Beli PayPal gift card senilai $6 melalui Rewarble lalu kirimkan kepada kami.
 
-🛒 **Product / Produk**
-Purchase a script or external product directly. /
+🛒 **Purchase / Beli (Script/External)**
+Buy scripts or external products directly. /
 Beli script atau produk eksternal secara langsung.
 
 💰 **Pricing / Harga**
@@ -559,7 +561,11 @@ const commands = [
   new SlashCommandBuilder().setName("revokekey").setDescription("Delete key").addStringOption(o => o.setName("key").setDescription("Key").setRequired(true)),
   new SlashCommandBuilder().setName("checkkey").setDescription("Check key (admin)").addStringOption(o => o.setName("key").setDescription("Key").setRequired(true)),
   new SlashCommandBuilder().setName("resethwid").setDescription("Reset HWID (admin)").addStringOption(o => o.setName("key").setDescription("Key").setRequired(true)),
-  new SlashCommandBuilder().setName("keylist").setDescription("List all keys (admin)"),
+  new SlashCommandBuilder()
+    .setName("keylist")
+    .setDescription("List all keys (admin)")
+    .addStringOption(o => o.setName("type").setDescription("Filter by key type").setRequired(false)
+      .addChoices({ name:"Paid Keys", value:"paid" }, { name:"Trial Keys", value:"trial" })),
   new SlashCommandBuilder()
     .setName("checkmykey")
     .setDescription("Check any key")
@@ -710,13 +716,13 @@ async function handleSlash(interaction) {
 
     const selectMenu = new StringSelectMenuBuilder()
       .setCustomId("shop_category_select")
-      .setPlaceholder("📂 Choose a category...")
+      .setPlaceholder("📂 Choose a category... / Pilih kategori...")
       .addOptions([
-        { label: "Help with issues / Bantuan", description: "Problems with the software", emoji: "❓", value: "support_help" },
-        { label: "Payment Inquiries / Pembayaran", description: "Payment questions", emoji: "💳", value: "support_payment" },
-        { label: "Gift Card (PayPal Rewarble)", description: "Purchase a gift card", emoji: "🎁", value: "support_gift" },
-        { label: "Product / Produk", description: "Purchase a script or external product", emoji: "🛒", value: "product" },
-        { label: "Pricing / Harga", description: "View product prices", emoji: "💰", value: "pricing" }
+        { label: "Help with issues / Bantuan", description: "Problems with the software / Masalah dengan software", emoji: "❓", value: "support_help" },
+        { label: "Payment Inquiries / Pembayaran", description: "Payment questions / Pertanyaan pembayaran", emoji: "💳", value: "support_payment" },
+        { label: "Gift Card (PayPal Rewarble)", description: "Purchase a gift card / Beli gift card", emoji: "🎁", value: "support_gift" },
+        { label: "Purchase / Beli (Script/External)", description: "Buy scripts or external products / Beli script atau produk eksternal", emoji: "🛒", value: "product" },
+        { label: "Pricing / Harga", description: "View product prices / Lihat harga produk", emoji: "💰", value: "pricing" }
       ]);
 
     const row = new ActionRowBuilder().addComponents(selectMenu);
@@ -850,24 +856,25 @@ async function handleSlash(interaction) {
       const durationMs = seconds ? seconds * 1000 : 0;
       const key = createKey(productKey, durationMs, data.userId);
       const loaderUrl = SCRIPT_LOADERS[productKey];
-      const scriptReady = `_G.KEY = "${key}"\nloadstring(game:HttpGet("${loaderUrl}"))()`;
+      const scriptReady = `loadstring(game:HttpGet("${loaderUrl}"))()`;
       const expireText = seconds ? `Starts when first used` : "Lifetime";
 
       approveEmbed = new EmbedBuilder()
         .setColor(COLOR_GREEN)
-        .setTitle("✅ Payment has been approved")
+        .setTitle("✅ Payment Approved")
         .addFields(
-          { name: "Produk", value: data.product, inline: true },
-          { name: "Durasi", value: formatDurasi(seconds), inline: true },
+          { name: "Product", value: data.product, inline: true },
+          { name: "Duration", value: formatDurasi(seconds), inline: true },
           { name: "Key", value: "```" + key + "```" },
-          { name: "Expired", value: expireText, inline: true },
-          { name: "Script - Copy Paste ke Madium", value: "```lua\n" + scriptReady + "\n```" }
+          { name: "Expires", value: expireText, inline: true },
+          { name: "Script", value: "```lua\n" + scriptReady + "\n```" }
         )
+        .setFooter({ text: "Use /checkmykey to view your key info anytime" })
         .setTimestamp();
     } else {
       approveEmbed = new EmbedBuilder()
         .setColor(COLOR_GREEN)
-        .setTitle("✅ Payment has been approved")
+        .setTitle("✅ Payment Approved")
         .setDescription(`Your **${data.product}** order has been verified!`)
         .setTimestamp();
     }
@@ -913,9 +920,9 @@ async function handleSlash(interaction) {
 
   // ── Key Bot Commands ───────────────────────────────────────────────────
 
-    if (commandName === "genkey") {
+  if (commandName === "genkey") {
     if (!canGenkey(member, interaction))
-      return interaction.reply({ content: "Kamu tidak punya izin!", flags: 64 });
+      return interaction.reply({ content: "You don't have permission!", flags: 64 });
 
     await interaction.deferReply({ flags: 64 });
 
@@ -926,7 +933,7 @@ async function handleSlash(interaction) {
 
     const key = createKey(productKey, durationMs, interaction.user.id);
     const loaderUrl = SCRIPT_LOADERS[productKey];
-    const scriptReady = `_G.KEY = "${key}"\nloadstring(game:HttpGet("${loaderUrl}"))()`;
+    const scriptReady = `loadstring(game:HttpGet("${loaderUrl}"))()`;
     const expireText = seconds ? `Starts when first used` : `Lifetime`;
 
     if (genlogChannelId) {
@@ -954,17 +961,17 @@ async function handleSlash(interaction) {
     };
 
     const embed = new EmbedBuilder()
-      .setTitle("✅ Key Berhasil Di-generate!")
+      .setTitle("✅ Key Generated Successfully!")
       .setColor(0x00ff99)
       .addFields(
-        { name: "Produk", value: productNames[productKey], inline: true },
+        { name: "Product", value: productNames[productKey], inline: true },
         { name: "Key", value: "```" + key + "```" },
-        { name: "Durasi", value: formatDurasi(seconds), inline: true },
-        { name: "Expired", value: expireText, inline: true },
-        { name: "Script - Copy Paste ke Madium", value: "```lua\n" + scriptReady + "\n```" }
+        { name: "Duration", value: formatDurasi(seconds), inline: true },
+        { name: "Expires", value: expireText, inline: true },
+        { name: "Script", value: "```lua\n" + scriptReady + "\n```" }
       )
       .setTimestamp()
-      .setFooter({ text: `Di-generate oleh ${interaction.user.tag}` });
+      .setFooter({ text: `Generated by ${interaction.user.tag}` });
 
     return interaction.editReply({ embeds: [embed] });
   }
@@ -1050,7 +1057,8 @@ async function handleSlash(interaction) {
         { name: "Created", value: new Date(data.created).toLocaleString("id-ID"), inline: true },
         { name: "Expires", value: expiryDisplay, inline: true },
         { name: "Status", value: statusText, inline: true },
-        { name: "HWID", value: data.hwid || "Not bound", inline: true }
+        { name: "HWID", value: data.hwid || "Not bound", inline: true },
+        { name: "Type", value: data.trial ? "🔰 Trial" : "💎 Paid", inline: true }
       )
       .setTimestamp();
 
@@ -1061,22 +1069,45 @@ async function handleSlash(interaction) {
     if (!isAdmin(member) && !isAdminByRole(interaction))
       return interaction.reply({ content: "No permission.", flags: 64 });
     const key = options.getString("key");
-    const index = keys.findIndex(k => k.key === key);
-    if (index === -1) return interaction.reply({ content: "❌ Key not found.", flags: 64 });
-    keys.splice(index, 1);
-    saveAll();
-    return interaction.reply({ content: "✅ Key revoked.", flags: 64 });
+    
+    // Check paid keys first
+    const paidIndex = keys.findIndex(k => k.key === key);
+    if (paidIndex !== -1) {
+      keys.splice(paidIndex, 1);
+      saveAll();
+      return interaction.reply({ content: "✅ Key revoked.", flags: 64 });
+    }
+    
+    // Check trial keys
+    const trialIndex = global.trialKeys.findIndex(k => k.key === key);
+    if (trialIndex !== -1) {
+      global.trialKeys.splice(trialIndex, 1);
+      return interaction.reply({ content: "✅ Trial key revoked.", flags: 64 });
+    }
+    
+    return interaction.reply({ content: "❌ Key not found.", flags: 64 });
   }
 
   if (commandName === "resethwid") {
     if (!isAdmin(member) && !isAdminByRole(interaction))
       return interaction.reply({ content: "No permission.", flags: 64 });
     const key = options.getString("key");
-    const data = keys.find(k => k.key === key) || global.trialKeys.find(k => k.key === key);
-    if (!data) return interaction.reply({ content: "❌ Key not found.", flags: 64 });
-    data.hwid = null;
-    saveAll();
-    return interaction.reply({ content: "✅ HWID reset. Key can be bound to a new device.", flags: 64 });
+    
+    // Devs can reset both paid and trial keys
+    const paidData = keys.find(k => k.key === key);
+    if (paidData) {
+      paidData.hwid = null;
+      saveAll();
+      return interaction.reply({ content: "✅ HWID reset. Key can be bound to a new device.", flags: 64 });
+    }
+    
+    const trialData = global.trialKeys.find(k => k.key === key);
+    if (trialData) {
+      trialData.hwid = null;
+      return interaction.reply({ content: "✅ HWID reset for trial key. Key can be bound to a new device.", flags: 64 });
+    }
+    
+    return interaction.reply({ content: "❌ Key not found.", flags: 64 });
   }
 
   if (commandName === "keylist") {
@@ -1084,8 +1115,17 @@ async function handleSlash(interaction) {
       return interaction.reply({ content: "No permission.", flags: 64 });
 
     refreshKeys();
-    const allKeys = [...keys];   // only disk keys, no trial keys
-    if (allKeys.length === 0) return interaction.reply({ content: "📭 No keys in database.", flags: 64 });
+    
+    const filterType = options.getString("type") || "paid";
+    let allKeys = [];
+    
+    if (filterType === "paid") {
+      allKeys = [...keys];
+    } else if (filterType === "trial") {
+      allKeys = [...global.trialKeys];
+    }
+    
+    if (allKeys.length === 0) return interaction.reply({ content: `📭 No ${filterType} keys in database.`, flags: 64 });
 
     const itemsPerPage = 10;
     const pages = [];
@@ -1098,10 +1138,11 @@ async function handleSlash(interaction) {
     const generateEmbed = (page) => {
       const now = Date.now();
       const keyList = pages[page];
+      const typeLabel = filterType === "trial" ? "Trial" : "Paid";
       const embed = new EmbedBuilder()
         .setColor(COLOR_MAIN)
-        .setTitle(`🔑 Key List (Page ${page + 1}/${pages.length})`)
-        .setFooter({ text: `${allKeys.length} total keys` });
+        .setTitle(`🔑 ${typeLabel} Key List (Page ${page + 1}/${pages.length})`)
+        .setFooter({ text: `${allKeys.length} total ${filterType} keys` });
 
       keyList.forEach(data => {
         const isUnbound = data.expires === 0 && data.duration > 0;
@@ -1128,7 +1169,7 @@ async function handleSlash(interaction) {
 
         embed.addFields({
           name: `${statusIcon} ${data.key}`,
-          value: `**Expires:** ${expText}\n**HWID:** ${data.hwid || "None"}\n**Product:** ${data.product || "N/A"}\n**Owner:** ${ownerText}`,
+          value: `**Expires:** ${expText}\n**HWID:** ${data.hwid || "None"}\n**Product:** ${data.product || "N/A"}\n**Owner:** ${ownerText}\n**Type:** ${data.trial ? "🔰 Trial" : "💎 Paid"}`,
           inline: false
         });
       });
@@ -1137,8 +1178,8 @@ async function handleSlash(interaction) {
     };
 
     const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId("keylist_prev").setLabel("◀").setStyle(ButtonStyle.Secondary).setDisabled(true),
-      new ButtonBuilder().setCustomId("keylist_next").setLabel("▶").setStyle(ButtonStyle.Secondary).setDisabled(pages.length <= 1)
+      new ButtonBuilder().setCustomId(`keylist_prev_${filterType}`).setLabel("◀").setStyle(ButtonStyle.Secondary).setDisabled(true),
+      new ButtonBuilder().setCustomId(`keylist_next_${filterType}`).setLabel("▶").setStyle(ButtonStyle.Secondary).setDisabled(pages.length <= 1)
     );
 
     const message = await interaction.reply({
@@ -1157,15 +1198,15 @@ async function handleSlash(interaction) {
         return btnInteraction.reply({ content: "You can't use this.", flags: 64 });
       }
 
-      if (btnInteraction.customId === "keylist_prev") {
+      if (btnInteraction.customId === `keylist_prev_${filterType}`) {
         currentPage--;
-      } else if (btnInteraction.customId === "keylist_next") {
+      } else if (btnInteraction.customId === `keylist_next_${filterType}`) {
         currentPage++;
       }
 
       const newRow = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId("keylist_prev").setLabel("◀").setStyle(ButtonStyle.Secondary).setDisabled(currentPage === 0),
-        new ButtonBuilder().setCustomId("keylist_next").setLabel("▶").setStyle(ButtonStyle.Secondary).setDisabled(currentPage === pages.length - 1)
+        new ButtonBuilder().setCustomId(`keylist_prev_${filterType}`).setLabel("◀").setStyle(ButtonStyle.Secondary).setDisabled(currentPage === 0),
+        new ButtonBuilder().setCustomId(`keylist_next_${filterType}`).setLabel("▶").setStyle(ButtonStyle.Secondary).setDisabled(currentPage === pages.length - 1)
       );
 
       await btnInteraction.update({ embeds: [generateEmbed(currentPage)], components: [newRow] });
@@ -1242,14 +1283,15 @@ async function handleSlash(interaction) {
         { name: "Created", value: new Date(data.created).toLocaleString("id-ID"), inline: true },
         { name: "Expires", value: expiryDisplay, inline: true },
         { name: "Status", value: statusText, inline: true },
-        { name: "HWID", value: data.hwid || "Not bound", inline: true }
+        { name: "HWID", value: data.hwid || "Not bound", inline: true },
+        { name: "Type", value: data.trial ? "🔰 Trial" : "💎 Paid", inline: true }
       )
       .setTimestamp();
 
     return interaction.reply({ embeds: [embed], flags: 64 });
   }
 
-  // ── /setuptrials (admin only, unchanged) ──────────────────────────────
+  // ── /setuptrials (admin only, fixed duration display) ─────────────────
   if (commandName === "setuptrials") {
     if (!isAdmin(member)) return safeReply(interaction, { content: "No permission." });
 
@@ -1265,14 +1307,20 @@ async function handleSlash(interaction) {
 
     const embed = new EmbedBuilder()
       .setColor(COLOR_MAIN)
-      .setTitle(`Free ${productNames[productKey]} For y'all 🔥`)
-      .setDescription(`**Product:** ${productNames[productKey]}\n**Key Duration:** ${durationLabel(durStr)}\n**Claim available until:** <t:${Math.floor(expireAt / 1000)}:R>`)
-      .setFooter({ text: "One trial per user." });
+      .setTitle(`🎁 Free Trial — ${productNames[productKey]}`)
+      .setDescription(`Get a **FREE ${durationLabel(durStr)}** trial of **${productNames[productKey]}**!`)
+      .addFields(
+        { name: "📦 Product", value: productNames[productKey], inline: true },
+        { name: "⏱️ Key Duration", value: durationLabel(durStr), inline: true },
+        { name: "⏰ Claim Period", value: `Expires <t:${Math.floor(expireAt / 1000)}:R>`, inline: true }
+      )
+      .setFooter({ text: "One trial per user • Limited time offer" })
+      .setTimestamp();
 
     const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId("trial_redeem").setLabel("Redeem Trial Key").setStyle(ButtonStyle.Success),
-      new ButtonBuilder().setCustomId("trial_loadstring").setLabel("Get Loadstring").setStyle(ButtonStyle.Primary),
-      new ButtonBuilder().setCustomId("trial_resethwid").setLabel("Reset HWID").setStyle(ButtonStyle.Secondary)
+      new ButtonBuilder().setCustomId("trial_redeem").setLabel("🎁 Redeem Trial Key").setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId("trial_loadstring").setLabel("📋 Get Loadstring").setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId("trial_resethwid").setLabel("🔄 Reset HWID").setStyle(ButtonStyle.Secondary)
     );
 
     const msg = await channel.send({ embeds: [embed], components: [row] });
@@ -1301,7 +1349,7 @@ async function handleSlash(interaction) {
       }
     }, expireSeconds * 1000);
 
-    return safeReply(interaction, { content: `✅ Trial panel sent! It will expire <t:${Math.floor(expireAt / 1000)}:R>.` });
+    return safeReply(interaction, { content: `✅ Trial panel sent for **${productNames[productKey]}** (${durationLabel(durStr)})! It will expire <t:${Math.floor(expireAt / 1000)}:R>.` });
   }
 }
 
@@ -1323,8 +1371,27 @@ async function handleButton(interaction) {
     if (alreadyClaimed) return interaction.reply({ content: "❌ You have already claimed a trial key before.", flags: 64 });
 
     const key = createKey(trial.product, trial.durationMs, userId, true);
-    await channel.send({ content: `<@${userId}> here is your trial key:\n\`\`\`${key}\`\`\`` });
-    return interaction.reply({ content: "✅ Your trial key has been sent in the chat!", flags: 64 });
+    const productNames = { killaura: "Kill Aura", combat: "Combat (Silent Aim)", autofarm: "Auto Farm", fps: "FPS" };
+    const durationText = formatDurasi(trial.durationMs / 1000);
+    
+    const redeemEmbed = new EmbedBuilder()
+      .setColor(COLOR_GREEN)
+      .setTitle("🎁 Trial Key Redeemed!")
+      .setDescription(`<@${userId}>, here's your **FREE ${productNames[trial.product]}** trial key!`)
+      .addFields(
+        { name: "📦 Product", value: productNames[trial.product], inline: true },
+        { name: "⏱️ Duration", value: durationText, inline: true },
+        { name: "🔑 Key", value: "```" + key + "```" },
+        { name: "📋 Instructions", value: "Use `/checkmykey` to view your key details.\nClick **Get Loadstring** for the executor script." }
+      )
+      .setFooter({ text: "This is a trial key • One-time use only" })
+      .setTimestamp();
+
+    await channel.send({ 
+      content: `<@${userId}>`,
+      embeds: [redeemEmbed]
+    });
+    return interaction.reply({ content: "✅ Your trial key has been generated! Check the channel above.", flags: 64 });
   }
 
   if (customId === "trial_loadstring") {
@@ -1482,24 +1549,25 @@ async function handleButton(interaction) {
         const durationMs = seconds ? seconds * 1000 : 0;
         const key = createKey(productKey, durationMs, data.userId);
         const loaderUrl = SCRIPT_LOADERS[productKey];
-        const scriptReady = `_G.KEY = "${key}"\nloadstring(game:HttpGet("${loaderUrl}"))()`;
+        const scriptReady = `loadstring(game:HttpGet("${loaderUrl}"))()`;
         const expireText = seconds ? `Starts when first used` : `Lifetime`;
 
         approveEmbed = new EmbedBuilder()
           .setColor(COLOR_GREEN)
-          .setTitle("✅ Payment has been approved")
+          .setTitle("✅ Payment Approved")
           .addFields(
-            { name: "Produk", value: data.product, inline: true },
-            { name: "Durasi", value: formatDurasi(seconds), inline: true },
+            { name: "Product", value: data.product, inline: true },
+            { name: "Duration", value: formatDurasi(seconds), inline: true },
             { name: "Key", value: "```" + key + "```" },
-            { name: "Expired", value: expireText, inline: true },
-            { name: "Script - Copy Paste ke Madium", value: "```lua\n" + scriptReady + "\n```" }
+            { name: "Expires", value: expireText, inline: true },
+            { name: "Script", value: "```lua\n" + scriptReady + "\n```" }
           )
+          .setFooter({ text: "Use /checkmykey to view your key info anytime" })
           .setTimestamp();
       } else {
         approveEmbed = new EmbedBuilder()
           .setColor(COLOR_GREEN)
-          .setTitle("✅ Payment has been approved")
+          .setTitle("✅ Payment Approved")
           .setDescription(`Your **${data.product}** order has been verified!`)
           .setTimestamp();
       }
@@ -1589,12 +1657,12 @@ async function handleModal(interaction) {
 
   if (customId === "modal_trial_resethwid") {
     const key = interaction.fields.getTextInputValue("key_input").trim();
-    // Only trial keys can be reset via this modal
-    const data = global.trialKeys.find(k => k.key === key);
-    if (!data) return interaction.reply({ content: "❌ Key not found or not a trial key.", flags: 64 });
-    if (data.userId !== user.id) return interaction.reply({ content: "❌ This key does not belong to you.", flags: 64 });
+    // Only trial keys can be reset via this button modal
+    const trialData = global.trialKeys.find(k => k.key === key);
+    if (!trialData) return interaction.reply({ content: "❌ Key not found or not a trial key. Use /resethwid command for paid keys.", flags: 64 });
+    if (trialData.userId !== user.id) return interaction.reply({ content: "❌ This key does not belong to you.", flags: 64 });
 
-    data.hwid = null;
+    trialData.hwid = null;
     return interaction.reply({ content: "✅ HWID reset. The key can now be bound to a new device.", flags: 64 });
   }
 
@@ -1661,13 +1729,13 @@ async function resetDropdown(interaction) {
   try {
     const freshMenu = new StringSelectMenuBuilder()
       .setCustomId("shop_category_select")
-      .setPlaceholder("📂 Choose a category...")
+      .setPlaceholder("📂 Choose a category... / Pilih kategori...")
       .addOptions([
-        { label: "Help with issues / Bantuan", description: "Problems with the software", emoji: "❓", value: "support_help" },
-        { label: "Payment Inquiries / Pembayaran", description: "Payment questions", emoji: "💳", value: "support_payment" },
-        { label: "Gift Card (PayPal Rewarble)", description: "Purchase a gift card", emoji: "🎁", value: "support_gift" },
-        { label: "Product / Produk", description: "Purchase a script or external product", emoji: "🛒", value: "product" },
-        { label: "Pricing / Harga", description: "View product prices", emoji: "💰", value: "pricing" }
+        { label: "Help with issues / Bantuan", description: "Problems with the software / Masalah dengan software", emoji: "❓", value: "support_help" },
+        { label: "Payment Inquiries / Pembayaran", description: "Payment questions / Pertanyaan pembayaran", emoji: "💳", value: "support_payment" },
+        { label: "Gift Card (PayPal Rewarble)", description: "Purchase a gift card / Beli gift card", emoji: "🎁", value: "support_gift" },
+        { label: "Purchase / Beli (Script/External)", description: "Buy scripts or external products / Beli script atau produk eksternal", emoji: "🛒", value: "product" },
+        { label: "Pricing / Harga", description: "View product prices / Lihat harga produk", emoji: "💰", value: "pricing" }
       ]);
     await interaction.message.edit({ components: [new ActionRowBuilder().addComponents(freshMenu)] });
   } catch (e) {
@@ -1839,7 +1907,7 @@ async function handleSelect(interaction) {
         embeds: [
           new EmbedBuilder()
             .setColor(COLOR_MAIN)
-            .setTitle("🎮 External – Roblox External")
+            .setTitle("🎮 External — Roblox External")
             .setDescription("Only lifetime option available.")
         ],
         components: [new ActionRowBuilder().addComponents(durMenu)]
