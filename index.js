@@ -342,12 +342,10 @@ function applyDiscount(price, code) {
   const discount = discountCodes.codes[code];
   if (!discount) return { price, discountAmount: 0, discountPercent: 0, valid: false };
   
-  // Check if expired
   if (discount.expiresAt && Date.now() > discount.expiresAt) {
     return { price, discountAmount: 0, discountPercent: 0, valid: false, expired: true };
   }
   
-  // Check max uses
   if (discount.maxUses > 0 && (discount.uses || 0) >= discount.maxUses) {
     return { price, discountAmount: 0, discountPercent: 0, valid: false, maxUses: true };
   }
@@ -355,7 +353,6 @@ function applyDiscount(price, code) {
   const discountAmount = Math.round(price * (discount.percent / 100));
   const newPrice = price - discountAmount;
   
-  // Increment usage
   discount.uses = (discount.uses || 0) + 1;
   writeJSON(FILES.discounts, discountCodes);
   
@@ -678,7 +675,7 @@ const commands = [
       .addChoices({ name:"1 Hour", value:"1h" }, { name:"3 Hours", value:"3h" }, { name:"6 Hours", value:"6h" }, { name:"12 Hours", value:"12h" }, { name:"1 Day", value:"1d" }, { name:"3 Days", value:"3d" }, { name:"7 Days", value:"7d" }))
     .addStringOption(o => o.setName("expires").setDescription("How long the claim button stays active").setRequired(true)
       .addChoices({ name:"1 Hour", value:"1h" }, { name:"3 Hours", value:"3h" }, { name:"6 Hours", value:"6h" }, { name:"12 Hours", value:"12h" }, { name:"1 Day", value:"1d" }, { name:"2 Days", value:"2d" }, { name:"3 Days", value:"3d" }, { name:"7 Days", value:"7d" })),
-  // DISCOUNT CODE COMMANDS
+  // NEW COMMANDS
   new SlashCommandBuilder()
     .setName("addcode")
     .setDescription("Add a discount code (admin only)")
@@ -693,11 +690,13 @@ const commands = [
   new SlashCommandBuilder()
     .setName("listcodes")
     .setDescription("List all discount codes (admin only)"),
-  // KEY STATS COMMAND
   new SlashCommandBuilder()
     .setName("keystats")
     .setDescription("View key usage statistics")
-    .addStringOption(o => o.setName("key").setDescription("Key to check stats for").setRequired(true))
+    .addStringOption(o => o.setName("key").setDescription("Key to check stats for").setRequired(true)),
+  new SlashCommandBuilder()
+    .setName("ping")
+    .setDescription("Check if bot is online")
 ].map(x => x.toJSON());
 
 /* =====================================================
@@ -720,16 +719,19 @@ client.once("ready", async () => {
   console.log("CLIENT_ID:", CLIENT_ID);
   console.log("GUILD_ID:", GUILD_ID);
 
+  // ✅ REGISTER TO GUILD (INSTANT!)
   try {
-    const result = await rest.put(
-      Routes.applicationCommands(CLIENT_ID),
+    await rest.put(
+      Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
       { body: commands }
     );
-    console.log(`✅ ${result.length} slash commands registered globally!`);
+    console.log(`✅ ${commands.length} slash commands registered to guild!`);
+    console.log(`📝 Commands: ${commands.map(c => c.name).join(', ')}`);
   } catch (err) {
     console.error("Registration failed:", err.message);
   }
   
+  // ── Ticket auto-close interval ──────────────────────────────────────────
   setInterval(async () => {
     const now = Date.now();
     for (const data of orders) {
@@ -758,6 +760,7 @@ client.once("ready", async () => {
     }
   }, 30 * 60 * 1000);
 
+  // ── Auto-cleanup of unbound keys (7 days) AND expired bound keys ─────
   setInterval(() => {
     const now = Date.now();
     const ttl = CONFIG.UNBOUND_KEY_TTL_DAYS * 86400 * 1000;
@@ -781,6 +784,7 @@ client.once("ready", async () => {
     }
   }, 24 * 60 * 60 * 1000);
 
+  // ── Cleanup expired trial keys from memory ────────────────────────────
   setInterval(() => {
     const now = Date.now();
     const before = global.trialKeys.length;
@@ -826,6 +830,11 @@ client.on("interactionCreate", async (interaction) => {
 
 async function handleSlash(interaction) {
   const { commandName, member, channel, guild, options, user } = interaction;
+
+  // ── PING COMMAND ──────────────────────────────────────────────────────
+  if (commandName === "ping") {
+    return interaction.reply({ content: "🏓 Pong! Bot is online!", flags: 64 });
+  }
 
   // ── DISCOUNT CODE COMMANDS ─────────────────────────────────────────────
   if (commandName === "addcode") {
@@ -1641,6 +1650,27 @@ async function handleButton(interaction) {
     );
   }
 
+  // ── Apply Discount Button ─────────────────────────────────────────────
+  if (customId.startsWith("apply_discount:")) {
+    const ticketId = customId.split(":")[1];
+    return interaction.showModal(
+      new ModalBuilder()
+        .setCustomId(`modal_discount:${ticketId}`)
+        .setTitle("Apply Discount Code")
+        .addComponents(
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId("discount_code")
+              .setLabel("Enter your discount code")
+              .setStyle(TextInputStyle.Short)
+              .setRequired(true)
+              .setMaxLength(20)
+              .setPlaceholder("e.g., SAVE10")
+          )
+        )
+    );
+  }
+
   if (customId === "trial_redeem") {
     const trial = trials.find(t => t.messageId === interaction.message.id);
     if (!trial) return safeReply(interaction, { content: "This trial panel is no longer valid." });
@@ -1938,11 +1968,68 @@ async function handleButton(interaction) {
 async function handleModal(interaction) {
   const { customId, guild, user } = interaction;
 
+  // ── Discount Modal ──────────────────────────────────────────────────────
+  if (customId.startsWith("modal_discount:")) {
+    const [, ticketId] = customId.split(":");
+    const code = interaction.fields.getTextInputValue("discount_code").toUpperCase();
+    const data = findOrder(ticketId);
+    if (!data) return safeReply(interaction, { content: "Order not found." });
+    if (data.userId !== user.id) return safeReply(interaction, { content: "Not your order." });
+    
+    const result = applyDiscount(data.originalPrice || data.price, code);
+    if (!result.valid) {
+      if (result.expired) return interaction.reply({ content: "❌ This discount code has expired.", flags: 64 });
+      if (result.maxUses) return interaction.reply({ content: "❌ This discount code has reached its maximum uses.", flags: 64 });
+      return interaction.reply({ content: "❌ Invalid discount code.", flags: 64 });
+    }
+    
+    data.price = result.price;
+    data.discountAmount = result.discountAmount;
+    data.discountCode = code;
+    saveAll();
+    
+    // Update the order embed with new price
+    const ch = interaction.guild.channels.cache.get(ticketId);
+    if (ch) {
+      const embed = new EmbedBuilder()
+        .setColor(COLOR_GREEN)
+        .setTitle("✅ Discount Applied!")
+        .setDescription(`Code **${code}** applied successfully!`)
+        .addFields(
+          { name: "Original Price", value: moneyIDR(data.originalPrice), inline: true },
+          { name: "Discount", value: `${result.discountPercent}% (${moneyIDR(result.discountAmount)})`, inline: true },
+          { name: "New Price", value: moneyIDR(data.price), inline: true }
+        )
+        .setTimestamp();
+      
+      await ch.send({ embeds: [embed] });
+      
+      // Update the payment embed with new price
+      const messages = await ch.messages.fetch({ limit: 10 });
+      for (const msg of messages.values()) {
+        if (msg.embeds.length > 0 && msg.embeds[0].data?.title?.includes("Order #")) {
+          const newEmbed = EmbedBuilder.from(msg.embeds[0])
+            .spliceFields(2, 1, {
+              name: "Price",
+              value: `${moneyIDR(data.price)}${data.discountAmount > 0 ? ` (Saved ${moneyIDR(data.discountAmount)})` : ''}\n${getUSDApprox(data.price)}`,
+              inline: true
+            });
+          await msg.edit({ embeds: [newEmbed] });
+          break;
+        }
+      }
+    }
+    
+    return interaction.reply({ 
+      content: `✅ Discount applied! New price: ${moneyIDR(data.price)} (Saved ${moneyIDR(result.discountAmount)})`, 
+      flags: 64 
+    });
+  }
+
   // ── HWID Reset Modal ───────────────────────────────────────────────────
   if (customId === "modal_hwid_reset_all") {
     const key = interaction.fields.getTextInputValue("hwid_key_input").trim();
     
-    // Check paid keys first
     const paidData = keys.find(k => k.key === key);
     if (paidData) {
       if (paidData.userId !== user.id) {
@@ -1956,7 +2043,6 @@ async function handleModal(interaction) {
       });
     }
 
-    // Check trial keys
     const trialData = global.trialKeys.find(k => k.key === key);
     if (trialData) {
       if (trialData.userId !== user.id) {
@@ -2123,9 +2209,9 @@ async function handleSelect(interaction) {
         variant: null,
         duration: null,
         price: null,
-        discountCode: null, // NEW: Store discount code used
-        discountAmount: 0,  // NEW: Store discount amount
-        originalPrice: null, // NEW: Store original price before discount
+        discountCode: null,
+        discountAmount: 0,
+        originalPrice: null,
         status: "category_selection",
         created: Date.now(),
         paymentMethod: null
@@ -2325,7 +2411,10 @@ async function handleSelect(interaction) {
       new ButtonBuilder().setCustomId(`apply_discount:${ticketId}`).setLabel("Apply Discount Code").setStyle(ButtonStyle.Primary).setEmoji("🏷️")
     );
 
-    await channel.send({
+    const ch = guild.channels.cache.get(ticketId);
+    if (!ch) return safeReply(interaction, { content: "Ticket channel not found." });
+
+    await ch.send({
       content: `<@${user.id}>`,
       embeds: [discountEmbed],
       components: [discountRow]
@@ -2334,9 +2423,6 @@ async function handleSelect(interaction) {
     const qris = { label: "QRIS", emoji: "🏦", instructions: "Scan QRIS to pay the exact amount.", image: QRIS_IMAGE };
     const paypal = { label: "PayPal", emoji: "💳", instructions: "Send as Friends & Family.", address: PAYPAL_EMAIL };
     const ltc = { label: "LTC", emoji: "🪙", instructions: "Send to LTC address.", address: LTC_TEXT };
-
-    const ch = guild.channels.cache.get(ticketId);
-    if (!ch) return safeReply(interaction, { content: "Ticket channel not found." });
 
     await ch.send({
       embeds: [
@@ -2419,94 +2505,6 @@ async function handleSelect(interaction) {
     });
   }
 }
-
-// ── DISCOUNT CODE BUTTON HANDLER ─────────────────────────────────────────
-// Add this to handleButton function - I'll add it in the existing handleButton
-
-// Also need to add the discount modal handler
-// Add this to handleModal function
-
-// Since I need to add these to existing functions, let me add them properly:
-
-// In handleButton function, add this case:
-// if (customId.startsWith("apply_discount:")) {
-//   const ticketId = customId.split(":")[1];
-//   return interaction.showModal(
-//     new ModalBuilder()
-//       .setCustomId(`modal_discount:${ticketId}`)
-//       .setTitle("Apply Discount Code")
-//       .addComponents(
-//         new ActionRowBuilder().addComponents(
-//           new TextInputBuilder()
-//             .setCustomId("discount_code")
-//             .setLabel("Enter your discount code")
-//             .setStyle(TextInputStyle.Short)
-//             .setRequired(true)
-//             .setMaxLength(20)
-//             .setPlaceholder("e.g., SAVE10")
-//         )
-//       )
-//   );
-// }
-
-// In handleModal function, add this case:
-// if (customId.startsWith("modal_discount:")) {
-//   const [, ticketId] = customId.split(":");
-//   const code = interaction.fields.getTextInputValue("discount_code").toUpperCase();
-//   const data = findOrder(ticketId);
-//   if (!data) return safeReply(interaction, { content: "Order not found." });
-//   if (data.userId !== interaction.user.id) return safeReply(interaction, { content: "Not your order." });
-//   
-//   const result = applyDiscount(data.originalPrice || data.price, code);
-//   if (!result.valid) {
-//     if (result.expired) return interaction.reply({ content: "❌ This discount code has expired.", flags: 64 });
-//     if (result.maxUses) return interaction.reply({ content: "❌ This discount code has reached its maximum uses.", flags: 64 });
-//     return interaction.reply({ content: "❌ Invalid discount code.", flags: 64 });
-//   }
-//   
-//   data.price = result.price;
-//   data.discountAmount = result.discountAmount;
-//   data.discountCode = code;
-//   saveAll();
-//   
-//   // Update the order embed with new price
-//   const ch = interaction.guild.channels.cache.get(ticketId);
-//   if (ch) {
-//     const embed = new EmbedBuilder()
-//       .setColor(COLOR_GREEN)
-//       .setTitle("✅ Discount Applied!")
-//       .setDescription(`Code **${code}** applied successfully!`)
-//       .addFields(
-//         { name: "Original Price", value: moneyIDR(data.originalPrice), inline: true },
-//         { name: "Discount", value: `${result.discountPercent}% (${moneyIDR(result.discountAmount)})`, inline: true },
-//         { name: "New Price", value: moneyIDR(data.price), inline: true }
-//       )
-//       .setTimestamp();
-//     
-//     await ch.send({ embeds: [embed] });
-//     
-//     // Update the payment embed with new price
-//     const messages = await ch.messages.fetch({ limit: 10 });
-//     // Find and update the order embed
-//     for (const msg of messages.values()) {
-//       if (msg.embeds.length > 0 && msg.embeds[0].title?.includes("Order #")) {
-//         const newEmbed = EmbedBuilder.from(msg.embeds[0])
-//           .spliceFields(2, 1, {
-//             name: "Price",
-//             value: `${moneyIDR(data.price)}${data.discountAmount > 0 ? ` (Saved ${moneyIDR(data.discountAmount)})` : ''}\n${getUSDApprox(data.price)}`,
-//             inline: true
-//           });
-//         await msg.edit({ embeds: [newEmbed] });
-//         break;
-//       }
-//     }
-//   }
-//   
-//   return interaction.reply({ 
-//     content: `✅ Discount applied! New price: ${moneyIDR(data.price)} (Saved ${moneyIDR(result.discountAmount)})`, 
-//     flags: 64 
-//   });
-// }
 
 /* =====================================================
    MESSAGE TRACKING FOR TRANSCRIPTS
