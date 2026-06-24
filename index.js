@@ -72,7 +72,7 @@ const CONFIG = {
   OWNER_ID: "961847981684973569",
   ADMIN_ROLE_NAME: "dev",
   RESELLER_ROLE_ID: "1517159248012906607",
-  BUYER_ROLE_ID: "1491434062164918313", // Added buyer role ID
+  BUYER_ROLE_ID: "1491434062164918313",
   AUTO_CLOSE_HOURS: 24,
   CURRENCY_RATE: 17000,
   BUYER_ROLE_NAME: "Subscriptions",
@@ -140,7 +140,7 @@ const client = new Client({
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
-    GatewayIntentBits.GuildMembers // Added for role management
+    GatewayIntentBits.GuildMembers
   ],
   partials: [Partials.Channel]
 });
@@ -158,17 +158,32 @@ const FILES = {
   logs: path.join(DATA_DIR, "logs.json"),
   transcript: path.join(DATA_DIR, "transcripts.json"),
   trials: path.join(DATA_DIR, "trials.json"),
-  genlog: path.join(DATA_DIR, "genlog.json")
+  genlog: path.join(DATA_DIR, "genlog.json"),
+  discounts: path.join(DATA_DIR, "discounts.json"),
+  keyusage: path.join(DATA_DIR, "keyusage.json")
 };
 
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR);
 
 for (const file of Object.values(FILES)) {
-  if (!fs.existsSync(file)) fs.writeFileSync(file, file.endsWith("genlog.json") ? "{}" : (file.endsWith("trials.json") ? "[]" : "[]"));
+  if (!fs.existsSync(file)) {
+    if (file.endsWith("discounts.json")) {
+      fs.writeFileSync(file, JSON.stringify({ codes: {} }));
+    } else if (file.endsWith("keyusage.json")) {
+      fs.writeFileSync(file, "{}");
+    } else if (file.endsWith("genlog.json")) {
+      fs.writeFileSync(file, "{}");
+    } else {
+      fs.writeFileSync(file, "[]");
+    }
+  }
 }
 
 function readJSON(file) {
-  try { return JSON.parse(fs.readFileSync(file, "utf8")); } catch { return []; }
+  try { return JSON.parse(fs.readFileSync(file, "utf8")); } catch { 
+    if (file.endsWith("discounts.json") || file.endsWith("keyusage.json")) return {};
+    return []; 
+  }
 }
 
 function writeJSON(file, data) {
@@ -188,7 +203,14 @@ let genlogChannelId = (() => {
     } catch { return null; }
 })();
 
-// ── IN‑MEMORY TRIAL KEYS (never written to disk) ──────────────────────
+// Discount codes storage
+let discountCodes = readJSON(FILES.discounts);
+if (!discountCodes.codes) discountCodes.codes = {};
+
+// Key usage stats
+let keyUsage = readJSON(FILES.keyusage);
+
+// ── IN‑MEMORY TRIAL KEYS ────────────────────────────────────────────────
 global.trialKeys = [];
 
 let logChannelId = null;
@@ -205,6 +227,9 @@ const commandCooldown = new Collection();
 
 function refreshKeys() {
   keys = readJSON(FILES.keys);
+  discountCodes = readJSON(FILES.discounts);
+  if (!discountCodes.codes) discountCodes.codes = {};
+  keyUsage = readJSON(FILES.keyusage);
 }
 
 function isAdmin(member) {
@@ -225,7 +250,6 @@ function isAdminByRole(interaction) {
   return interaction.member.roles.cache.has(ADMIN_ROLE_ID);
 }
 
-// FIXED: Resellers can now genkey too!
 function canGenkey(member, interaction) { 
   return isAdmin(member) || isAdminByRole(interaction) || isReseller(member); 
 }
@@ -264,7 +288,7 @@ function randomID(len = 10) {
   return crypto.randomBytes(len).toString("hex").slice(0, len);
 }
 
-// ── Regular key generation (stored on disk) ─────────────────────────────
+// ── Regular key generation ─────────────────────────────────────────────
 function generateKey(productKey) {
   const prefix = PRODUCT_PREFIXES[productKey] || "XX";
   return (
@@ -276,7 +300,7 @@ function generateKey(productKey) {
   );
 }
 
-// ── Trial key generation (in‑memory, uses free prefix) ──────────────────
+// ── Trial key generation ──────────────────────────────────────────────
 function generateTrialKey(productKey) {
   const prefix = FREE_PREFIXES[productKey] || "XXFREE";
   return (
@@ -288,7 +312,7 @@ function generateTrialKey(productKey) {
   );
 }
 
-// ── Centralised key creation (always includes userId) ─────────────────
+// ── Centralised key creation ──────────────────────────────────────────
 function createKey(productKey, durationMs, userId, isTrial = false) {
   const key = isTrial ? generateTrialKey(productKey) : generateKey(productKey);
   const entry = {
@@ -299,7 +323,8 @@ function createKey(productKey, durationMs, userId, isTrial = false) {
     hwid: null,
     userId: userId,
     created: Date.now(),
-    trial: isTrial || false
+    trial: isTrial || false,
+    usageCount: 0
   };
 
   if (isTrial) {
@@ -311,6 +336,67 @@ function createKey(productKey, durationMs, userId, isTrial = false) {
   return key;
 }
 
+// ── Apply discount code ────────────────────────────────────────────────
+function applyDiscount(price, code) {
+  refreshKeys();
+  const discount = discountCodes.codes[code];
+  if (!discount) return { price, discountAmount: 0, discountPercent: 0, valid: false };
+  
+  // Check if expired
+  if (discount.expiresAt && Date.now() > discount.expiresAt) {
+    return { price, discountAmount: 0, discountPercent: 0, valid: false, expired: true };
+  }
+  
+  // Check max uses
+  if (discount.maxUses > 0 && (discount.uses || 0) >= discount.maxUses) {
+    return { price, discountAmount: 0, discountPercent: 0, valid: false, maxUses: true };
+  }
+  
+  const discountAmount = Math.round(price * (discount.percent / 100));
+  const newPrice = price - discountAmount;
+  
+  // Increment usage
+  discount.uses = (discount.uses || 0) + 1;
+  writeJSON(FILES.discounts, discountCodes);
+  
+  return {
+    price: newPrice,
+    discountAmount,
+    discountPercent: discount.percent,
+    code: code,
+    valid: true
+  };
+}
+
+// ── Track key usage ────────────────────────────────────────────────────
+function trackKeyUsage(key, hwid) {
+  refreshKeys();
+  const paidKey = keys.find(k => k.key === key);
+  if (paidKey) {
+    if (!paidKey.usageCount) paidKey.usageCount = 0;
+    paidKey.usageCount++;
+    if (!keyUsage[key]) keyUsage[key] = { uses: 0, hwids: [], users: [], lastUsed: Date.now() };
+    keyUsage[key].uses++;
+    if (hwid && !keyUsage[key].hwids.includes(hwid)) {
+      keyUsage[key].hwids.push(hwid);
+    }
+    if (paidKey.userId && !keyUsage[key].users.includes(paidKey.userId)) {
+      keyUsage[key].users.push(paidKey.userId);
+    }
+    keyUsage[key].lastUsed = Date.now();
+    saveAll();
+    return true;
+  }
+  
+  const trialKey = global.trialKeys.find(k => k.key === key);
+  if (trialKey) {
+    if (!trialKey.usageCount) trialKey.usageCount = 0;
+    trialKey.usageCount++;
+    return true;
+  }
+  return false;
+}
+
 function saveAll() {
   writeJSON(FILES.orders, orders);
   writeJSON(FILES.keys, keys);
@@ -319,6 +405,8 @@ function saveAll() {
   writeJSON(FILES.transcript, transcripts);
   writeJSON(FILES.trials, trials);
   writeJSON(FILES.genlog, { channelId: genlogChannelId });
+  writeJSON(FILES.discounts, discountCodes);
+  writeJSON(FILES.keyusage, keyUsage);
 }
 
 function findOrder(channelId) {
@@ -481,13 +569,17 @@ function dashboardEmbed(guild) {
   const rejectedOrders = orders.filter(o => o.status === "rejected").length;
   const closedOrders = orders.filter(o => o.status === "closed" || o.status === "cancelled").length;
 
+  const totalDiscounts = Object.keys(discountCodes.codes || {}).length;
+  const totalUses = Object.values(discountCodes.codes || {}).reduce((sum, d) => sum + (d.uses || 0), 0);
+
   return new EmbedBuilder()
     .setColor(COLOR_MAIN)
     .setTitle("📊 Phantom Dashboard")
     .addFields(
       { name: "Keys", value: `🔑 Total: ${totalKeys}\n🟢 Active: ${activeKeys}\n🔴 Expired: ${totalKeys - activeKeys}`, inline: true },
       { name: "Orders", value: `📦 Total: ${totalOrders}\n💳 Pending Payment: ${paymentOrders}\n⏳ Awaiting Approval: ${pendingOrders}`, inline: true },
-      { name: "Completed", value: `✅ Approved: ${approvedOrders}\n❌ Rejected: ${rejectedOrders}\n🚫 Closed: ${closedOrders}`, inline: true }
+      { name: "Completed", value: `✅ Approved: ${approvedOrders}\n❌ Rejected: ${rejectedOrders}\n🚫 Closed: ${closedOrders}`, inline: true },
+      { name: "Discounts", value: `🏷️ Total Codes: ${totalDiscounts}\n🔄 Total Uses: ${totalUses}`, inline: true }
     )
     .setTimestamp();
 }
@@ -585,7 +677,27 @@ const commands = [
     .addStringOption(o => o.setName("duration").setDescription("Trial duration").setRequired(true)
       .addChoices({ name:"1 Hour", value:"1h" }, { name:"3 Hours", value:"3h" }, { name:"6 Hours", value:"6h" }, { name:"12 Hours", value:"12h" }, { name:"1 Day", value:"1d" }, { name:"3 Days", value:"3d" }, { name:"7 Days", value:"7d" }))
     .addStringOption(o => o.setName("expires").setDescription("How long the claim button stays active").setRequired(true)
-      .addChoices({ name:"1 Hour", value:"1h" }, { name:"3 Hours", value:"3h" }, { name:"6 Hours", value:"6h" }, { name:"12 Hours", value:"12h" }, { name:"1 Day", value:"1d" }, { name:"2 Days", value:"2d" }, { name:"3 Days", value:"3d" }, { name:"7 Days", value:"7d" }))
+      .addChoices({ name:"1 Hour", value:"1h" }, { name:"3 Hours", value:"3h" }, { name:"6 Hours", value:"6h" }, { name:"12 Hours", value:"12h" }, { name:"1 Day", value:"1d" }, { name:"2 Days", value:"2d" }, { name:"3 Days", value:"3d" }, { name:"7 Days", value:"7d" })),
+  // NEW: Discount code commands
+  new SlashCommandBuilder()
+    .setName("addcode")
+    .setDescription("Add a discount code (admin only)")
+    .addStringOption(o => o.setName("code").setDescription("Discount code").setRequired(true))
+    .addStringOption(o => o.setName("percent").setDescription("Discount percentage (1-100)").setRequired(true))
+    .addStringOption(o => o.setName("max_uses").setDescription("Maximum uses (0 = unlimited)").setRequired(false))
+    .addStringOption(o => o.setName("expires_in").setDescription("Expires in days (0 = never)").setRequired(false)),
+  new SlashCommandBuilder()
+    .setName("removecode")
+    .setDescription("Remove a discount code (admin only)")
+    .addStringOption(o => o.setName("code").setDescription("Discount code to remove").setRequired(true)),
+  new SlashCommandBuilder()
+    .setName("listcodes")
+    .setDescription("List all discount codes (admin only)"),
+  // NEW: Key usage stats command
+  new SlashCommandBuilder()
+    .setName("keystats")
+    .setDescription("View key usage statistics")
+    .addStringOption(o => o.setName("key").setDescription("Key to check stats for").setRequired(true))
 ].map(x => x.toJSON());
 
 /* =====================================================
@@ -608,7 +720,6 @@ client.once("ready", async () => {
   console.log("CLIENT_ID:", CLIENT_ID);
   console.log("GUILD_ID:", GUILD_ID);
 
-  // Register commands globally
   try {
     const result = await rest.put(
       Routes.applicationCommands(CLIENT_ID),
@@ -619,7 +730,6 @@ client.once("ready", async () => {
     console.error("Registration failed:", err.message);
   }
   
-  // ── Ticket auto-close interval ──────────────────────────────────────────
   setInterval(async () => {
     const now = Date.now();
     for (const data of orders) {
@@ -648,7 +758,6 @@ client.once("ready", async () => {
     }
   }, 30 * 60 * 1000);
 
-  // ── Auto-cleanup of unbound keys (7 days) AND expired bound keys ─────
   setInterval(() => {
     const now = Date.now();
     const ttl = CONFIG.UNBOUND_KEY_TTL_DAYS * 86400 * 1000;
@@ -672,7 +781,6 @@ client.once("ready", async () => {
     }
   }, 24 * 60 * 60 * 1000);
 
-  // ── Cleanup expired trial keys from memory ────────────────────────────
   setInterval(() => {
     const now = Date.now();
     const before = global.trialKeys.length;
@@ -717,8 +825,120 @@ client.on("interactionCreate", async (interaction) => {
 ===================================================== */
 
 async function handleSlash(interaction) {
-  const { commandName, member, channel, guild, options } = interaction;
+  const { commandName, member, channel, guild, options, user } = interaction;
 
+  // ── DISCOUNT CODE COMMANDS ─────────────────────────────────────────────
+  if (commandName === "addcode") {
+    if (!isAdmin(member)) return interaction.reply({ content: "You don't have permission!", flags: 64 });
+    
+    const code = options.getString("code").toUpperCase();
+    const percent = parseInt(options.getString("percent"));
+    const maxUses = parseInt(options.getString("max_uses") || "0");
+    const expiresIn = parseInt(options.getString("expires_in") || "0");
+    
+    if (percent < 1 || percent > 100) {
+      return interaction.reply({ content: "❌ Percentage must be between 1 and 100.", flags: 64 });
+    }
+    
+    refreshKeys();
+    if (discountCodes.codes[code]) {
+      return interaction.reply({ content: `❌ Discount code **${code}** already exists.`, flags: 64 });
+    }
+    
+    discountCodes.codes[code] = {
+      percent,
+      maxUses: maxUses || 0,
+      uses: 0,
+      createdBy: user.id,
+      createdAt: Date.now(),
+      expiresAt: expiresIn > 0 ? Date.now() + (expiresIn * 86400000) : null
+    };
+    
+    saveAll();
+    return interaction.reply({ 
+      content: `✅ Discount code **${code}** added with **${percent}%** discount!` + 
+               (maxUses > 0 ? `\n📊 Max uses: ${maxUses}` : '\n📊 Unlimited uses') +
+               (expiresIn > 0 ? `\n⏰ Expires in: ${expiresIn} days` : '\n⏰ Never expires'),
+      flags: 64 
+    });
+  }
+
+  if (commandName === "removecode") {
+    if (!isAdmin(member)) return interaction.reply({ content: "You don't have permission!", flags: 64 });
+    
+    const code = options.getString("code").toUpperCase();
+    refreshKeys();
+    
+    if (!discountCodes.codes[code]) {
+      return interaction.reply({ content: `❌ Discount code **${code}** not found.`, flags: 64 });
+    }
+    
+    delete discountCodes.codes[code];
+    saveAll();
+    return interaction.reply({ content: `✅ Discount code **${code}** removed.`, flags: 64 });
+  }
+
+  if (commandName === "listcodes") {
+    if (!isAdmin(member)) return interaction.reply({ content: "You don't have permission!", flags: 64 });
+    
+    refreshKeys();
+    const codes = Object.keys(discountCodes.codes);
+    if (codes.length === 0) {
+      return interaction.reply({ content: "📭 No discount codes available.", flags: 64 });
+    }
+    
+    const embed = new EmbedBuilder()
+      .setColor(COLOR_MAIN)
+      .setTitle("🏷️ Available Discount Codes");
+    
+    codes.forEach(code => {
+      const data = discountCodes.codes[code];
+      const isExpired = data.expiresAt && Date.now() > data.expiresAt;
+      embed.addFields({
+        name: `${isExpired ? '🔴' : '🟢'} ${code}`,
+        value: `Percent: ${data.percent}%\nUses: ${data.uses || 0}/${data.maxUses || '∞'}\n${data.expiresAt ? `⏰ Expires: <t:${Math.floor(data.expiresAt / 1000)}:R>` : '⏰ Never expires'}`,
+        inline: true
+      });
+    });
+    
+    return interaction.reply({ embeds: [embed], flags: 64 });
+  }
+
+  // ── KEY STATS COMMAND ──────────────────────────────────────────────────
+  if (commandName === "keystats") {
+    const key = options.getString("key");
+    refreshKeys();
+    
+    const data = keyUsage[key];
+    if (!data) {
+      return interaction.reply({ content: "❌ Key not found or no usage data.", flags: 64 });
+    }
+    
+    const paidKey = keys.find(k => k.key === key);
+    const trialKey = global.trialKeys.find(k => k.key === key);
+    const keyData = paidKey || trialKey;
+    
+    const embed = new EmbedBuilder()
+      .setColor(COLOR_MAIN)
+      .setTitle("📊 Key Usage Statistics")
+      .addFields(
+        { name: "Key", value: `\`${key}\``, inline: false },
+        { name: "Product", value: keyData?.product || 'Unknown', inline: true },
+        { name: "Type", value: keyData?.trial ? "🔰 Trial" : "💎 Paid", inline: true },
+        { name: "Total Uses", value: `${data.uses || 0}`, inline: true },
+        { name: "Unique HWIDs", value: `${(data.hwids || []).length}`, inline: true },
+        { name: "Last Used", value: data.lastUsed ? `<t:${Math.floor(data.lastUsed / 1000)}:R>` : "Never used", inline: true }
+      )
+      .setTimestamp();
+    
+    if (keyData?.userId) {
+      embed.addFields({ name: "Owner", value: `<@${keyData.userId}>`, inline: true });
+    }
+    
+    return interaction.reply({ embeds: [embed], flags: 64 });
+  }
+
+  // ── SETUP COMMANDS ──────────────────────────────────────────────────────
   if (commandName === "setup") {
     if (!isAdmin(member)) return safeReply(interaction, { content: "No permission." });
 
@@ -770,30 +990,29 @@ async function handleSlash(interaction) {
   }
 
   if (commandName === "setupgenlog") {
-    if (!isAdmin(member)) return safeReply(interaction, { content:"No permission." });
+    if (!isAdmin(member)) return safeReply(interaction, { content: "No permission." });
     genlogChannelId = channel.id;
     saveAll();
-    return safeReply(interaction, { content:"✅ Genkey log channel set." });
+    return safeReply(interaction, { content: "✅ Genkey log channel set." });
   }
 
-  // NEW: /setuphwid command
   if (commandName === "setuphwid") {
     if (!isAdmin(member)) return safeReply(interaction, { content: "No permission." });
     
     const embed = new EmbedBuilder()
       .setColor(COLOR_MAIN)
       .setTitle("🔐 HWID Management Panel")
-      .setDescription("Use this panel to manage your HWID bindings.\n\n**How to use:**\n1. Click the **Reset HWID** button below\n2. Enter your key in the popup\n3. If the key is valid, your HWID will be reset")
+      .setDescription("Reset your HWID to use your key on a new device.\n\n**Both paid and trial keys can be reset using this panel.**")
       .addFields(
-        { name: "ℹ️ What is HWID?", value: "Hardware ID - a unique identifier for your device. Resetting allows you to use your key on a new device." },
-        { name: "📋 Key Types", value: "• **Paid Keys**: Can be reset by admins\n• **Trial Keys**: Can be reset by users themselves" }
+        { name: "ℹ️ How it works", value: "1. Click the **Reset HWID** button below\n2. Enter your key\n3. If the key is valid, your HWID will be reset" },
+        { name: "📋 Key Types", value: "• ✅ **Paid Keys**: Can be reset\n• ✅ **Trial Keys**: Can be reset" },
+        { name: "⚠️ Note", value: "You can only reset keys that belong to you." }
       )
-      .setFooter({ text: "Only trial keys can be self-reset. Paid keys require admin assistance." })
+      .setFooter({ text: "Both paid and trial keys supported" })
       .setTimestamp();
 
     const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId("hwid_reset_self").setLabel("🔄 Reset My HWID").setStyle(ButtonStyle.Primary),
-      new ButtonBuilder().setCustomId("hwid_reset_admin").setLabel("🔧 Admin Reset").setStyle(ButtonStyle.Danger)
+      new ButtonBuilder().setCustomId("hwid_reset_all").setLabel("🔄 Reset HWID").setStyle(ButtonStyle.Primary)
     );
 
     await channel.send({ embeds: [embed], components: [row] });
@@ -882,7 +1101,7 @@ async function handleSlash(interaction) {
     saveAll();
     trackMessage(channel.id, "SYSTEM", `[APPROVED] Payment approved by ${interaction.user.tag}`);
 
-    // ── Give buyer role if they don't have it ──────────────────────────
+    // ── Give buyer role ──────────────────────────────────────────────────
     try {
       const targetMember = await guild.members.fetch(data.userId).catch(() => null);
       if (targetMember) {
@@ -1117,7 +1336,6 @@ async function handleSlash(interaction) {
       return interaction.reply({ content: "No permission.", flags: 64 });
     const key = options.getString("key");
     
-    // Check paid keys first
     const paidIndex = keys.findIndex(k => k.key === key);
     if (paidIndex !== -1) {
       keys.splice(paidIndex, 1);
@@ -1125,7 +1343,6 @@ async function handleSlash(interaction) {
       return interaction.reply({ content: "✅ Key revoked.", flags: 64 });
     }
     
-    // Check trial keys
     const trialIndex = global.trialKeys.findIndex(k => k.key === key);
     if (trialIndex !== -1) {
       global.trialKeys.splice(trialIndex, 1);
@@ -1140,7 +1357,6 @@ async function handleSlash(interaction) {
       return interaction.reply({ content: "No permission.", flags: 64 });
     const key = options.getString("key");
     
-    // Devs can reset both paid and trial keys
     const paidData = keys.find(k => k.key === key);
     if (paidData) {
       paidData.hwid = null;
@@ -1268,7 +1484,6 @@ async function handleSlash(interaction) {
     return;
   }
 
-  // ── /checkmykey (public, with automatic binding) ─────────────────────
   if (commandName === "checkmykey") {
     const key = options.getString("key");
     const userId = interaction.user.id;
@@ -1338,7 +1553,6 @@ async function handleSlash(interaction) {
     return interaction.reply({ embeds: [embed], flags: 64 });
   }
 
-  // ── /setuptrials (admin only, fixed duration display) ─────────────────
   if (commandName === "setuptrials") {
     if (!isAdmin(member)) return safeReply(interaction, { content: "No permission." });
 
@@ -1407,38 +1621,17 @@ async function handleSlash(interaction) {
 async function handleButton(interaction) {
   const { customId, guild, user, member, channel } = interaction;
 
-  // ── HWID Reset Button (Self) ──────────────────────────────────────────
-  if (customId === "hwid_reset_self") {
+  // ── HWID Reset Button ──────────────────────────────────────────────────
+  if (customId === "hwid_reset_all") {
     return interaction.showModal(
       new ModalBuilder()
-        .setCustomId("modal_hwid_reset_self")
-        .setTitle("Reset Your HWID")
+        .setCustomId("modal_hwid_reset_all")
+        .setTitle("Reset HWID")
         .addComponents(
           new ActionRowBuilder().addComponents(
             new TextInputBuilder()
               .setCustomId("hwid_key_input")
               .setLabel("Enter your key")
-              .setStyle(TextInputStyle.Short)
-              .setRequired(true)
-              .setMaxLength(50)
-              .setPlaceholder("e.g., KA-XXXX-XXXX-XXXX-XXXX")
-          )
-        )
-    );
-  }
-
-  // ── HWID Reset Button (Admin) ─────────────────────────────────────────
-  if (customId === "hwid_reset_admin") {
-    if (!isAdmin(member)) return safeReply(interaction, { content: "No permission." });
-    return interaction.showModal(
-      new ModalBuilder()
-        .setCustomId("modal_hwid_reset_admin")
-        .setTitle("Admin HWID Reset")
-        .addComponents(
-          new ActionRowBuilder().addComponents(
-            new TextInputBuilder()
-              .setCustomId("hwid_key_input")
-              .setLabel("Enter the key to reset")
               .setStyle(TextInputStyle.Short)
               .setRequired(true)
               .setMaxLength(50)
@@ -1628,7 +1821,7 @@ async function handleButton(interaction) {
     saveAll();
     trackMessage(ticketId, "SYSTEM", `[APPROVED] Payment approved by ${user.tag}`);
 
-    // ── Give buyer role if they don't have it ──────────────────────────
+    // ── Give buyer role ──────────────────────────────────────────────────
     try {
       const targetMember = await guild.members.fetch(data.userId).catch(() => null);
       if (targetMember) {
@@ -1745,11 +1938,25 @@ async function handleButton(interaction) {
 async function handleModal(interaction) {
   const { customId, guild, user } = interaction;
 
-  // ── HWID Reset Modal (Self) ───────────────────────────────────────────
-  if (customId === "modal_hwid_reset_self") {
+  // ── HWID Reset Modal ───────────────────────────────────────────────────
+  if (customId === "modal_hwid_reset_all") {
     const key = interaction.fields.getTextInputValue("hwid_key_input").trim();
     
-    // Check trial keys first (users can only self-reset trial keys)
+    // Check paid keys first
+    const paidData = keys.find(k => k.key === key);
+    if (paidData) {
+      if (paidData.userId !== user.id) {
+        return interaction.reply({ content: "❌ This key does not belong to you.", flags: 64 });
+      }
+      paidData.hwid = null;
+      saveAll();
+      return interaction.reply({ 
+        content: "✅ HWID reset successfully! Your paid key can now be bound to a new device.", 
+        flags: 64 
+      });
+    }
+
+    // Check trial keys
     const trialData = global.trialKeys.find(k => k.key === key);
     if (trialData) {
       if (trialData.userId !== user.id) {
@@ -1757,40 +1964,9 @@ async function handleModal(interaction) {
       }
       trialData.hwid = null;
       return interaction.reply({ 
-        content: "✅ HWID reset successfully! The key can now be bound to a new device.", 
+        content: "✅ HWID reset successfully! Your trial key can now be bound to a new device.", 
         flags: 64 
       });
-    }
-
-    // Check if it's a paid key (they can't self-reset)
-    const paidData = keys.find(k => k.key === key);
-    if (paidData) {
-      return interaction.reply({ 
-        content: "❌ This is a paid key. Please contact an admin to reset your HWID using the **Admin Reset** button.", 
-        flags: 64 
-      });
-    }
-
-    return interaction.reply({ content: "❌ Key not found.", flags: 64 });
-  }
-
-  // ── HWID Reset Modal (Admin) ──────────────────────────────────────────
-  if (customId === "modal_hwid_reset_admin") {
-    const key = interaction.fields.getTextInputValue("hwid_key_input").trim();
-    
-    // Check paid keys
-    const paidData = keys.find(k => k.key === key);
-    if (paidData) {
-      paidData.hwid = null;
-      saveAll();
-      return interaction.reply({ content: "✅ HWID reset for paid key. Key can be bound to a new device.", flags: 64 });
-    }
-
-    // Check trial keys
-    const trialData = global.trialKeys.find(k => k.key === key);
-    if (trialData) {
-      trialData.hwid = null;
-      return interaction.reply({ content: "✅ HWID reset for trial key. Key can be bound to a new device.", flags: 64 });
     }
 
     return interaction.reply({ content: "❌ Key not found.", flags: 64 });
