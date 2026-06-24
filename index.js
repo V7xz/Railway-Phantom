@@ -72,6 +72,7 @@ const CONFIG = {
   OWNER_ID: "961847981684973569",
   ADMIN_ROLE_NAME: "dev",
   RESELLER_ROLE_ID: "1517159248012906607",
+  BUYER_ROLE_ID: "1491434062164918313", // Added buyer role ID
   AUTO_CLOSE_HOURS: 24,
   CURRENCY_RATE: 17000,
   BUYER_ROLE_NAME: "Subscriptions",
@@ -138,7 +139,8 @@ const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent
+    GatewayIntentBits.MessageContent,
+    GatewayIntentBits.GuildMembers // Added for role management
   ],
   partials: [Partials.Channel]
 });
@@ -211,9 +213,9 @@ function isAdmin(member) {
     member.roles.cache.some(r => r.name === CONFIG.ADMIN_ROLE_NAME)
   );
 }
-function isReseller(member) { return member.roles.cache.has(CONFIG.RESELLER_ROLE_ID); }
-function canGenkey(member, interaction) { 
-  return isAdmin(member) || isAdminByRole(interaction) || isReseller(member); 
+
+function isReseller(member) { 
+  return member.roles.cache.has(CONFIG.RESELLER_ROLE_ID); 
 }
 
 function isAdminByRole(interaction) {
@@ -221,6 +223,11 @@ function isAdminByRole(interaction) {
   if (!ADMIN_ROLE_ID) return false;
   if (!interaction || !interaction.member) return false;
   return interaction.member.roles.cache.has(ADMIN_ROLE_ID);
+}
+
+// FIXED: Resellers can now genkey too!
+function canGenkey(member, interaction) { 
+  return isAdmin(member) || isAdminByRole(interaction) || isReseller(member); 
 }
 
 function parseDuration(val) {
@@ -533,6 +540,7 @@ const commands = [
   new SlashCommandBuilder().setName("setupreviews").setDescription("Set current channel as review channel"),
   new SlashCommandBuilder().setName("setuptranscript").setDescription("Set current channel as transcript destination"),
   new SlashCommandBuilder().setName("setupgenlog").setDescription("Set current channel as genkey log channel"),
+  new SlashCommandBuilder().setName("setuphwid").setDescription("Send HWID management panel"),
   new SlashCommandBuilder().setName("dashboard").setDescription("View live stats"),
   new SlashCommandBuilder().setName("claim").setDescription("Claim this ticket"),
   new SlashCommandBuilder().setName("close").setDescription("Close current ticket (generates transcript)"),
@@ -760,11 +768,36 @@ async function handleSlash(interaction) {
     saveAll();
     return safeReply(interaction, { content: "✅ Transcript channel set." });
   }
-    if (commandName === "setupgenlog") {
+
+  if (commandName === "setupgenlog") {
     if (!isAdmin(member)) return safeReply(interaction, { content:"No permission." });
     genlogChannelId = channel.id;
     saveAll();
     return safeReply(interaction, { content:"✅ Genkey log channel set." });
+  }
+
+  // NEW: /setuphwid command
+  if (commandName === "setuphwid") {
+    if (!isAdmin(member)) return safeReply(interaction, { content: "No permission." });
+    
+    const embed = new EmbedBuilder()
+      .setColor(COLOR_MAIN)
+      .setTitle("🔐 HWID Management Panel")
+      .setDescription("Use this panel to manage your HWID bindings.\n\n**How to use:**\n1. Click the **Reset HWID** button below\n2. Enter your key in the popup\n3. If the key is valid, your HWID will be reset")
+      .addFields(
+        { name: "ℹ️ What is HWID?", value: "Hardware ID - a unique identifier for your device. Resetting allows you to use your key on a new device." },
+        { name: "📋 Key Types", value: "• **Paid Keys**: Can be reset by admins\n• **Trial Keys**: Can be reset by users themselves" }
+      )
+      .setFooter({ text: "Only trial keys can be self-reset. Paid keys require admin assistance." })
+      .setTimestamp();
+
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId("hwid_reset_self").setLabel("🔄 Reset My HWID").setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId("hwid_reset_admin").setLabel("🔧 Admin Reset").setStyle(ButtonStyle.Danger)
+    );
+
+    await channel.send({ embeds: [embed], components: [row] });
+    return safeReply(interaction, { content: "✅ HWID management panel sent." });
   }
 
   if (commandName === "dashboard") {
@@ -848,6 +881,20 @@ async function handleSlash(interaction) {
     data.approvedBy = interaction.user.id;
     saveAll();
     trackMessage(channel.id, "SYSTEM", `[APPROVED] Payment approved by ${interaction.user.tag}`);
+
+    // ── Give buyer role if they don't have it ──────────────────────────
+    try {
+      const targetMember = await guild.members.fetch(data.userId).catch(() => null);
+      if (targetMember) {
+        const buyerRoleId = CONFIG.BUYER_ROLE_ID;
+        if (buyerRoleId && !targetMember.roles.cache.has(buyerRoleId)) {
+          await targetMember.roles.add(buyerRoleId);
+          console.log(`[ROLE] Added buyer role to ${targetMember.user.tag}`);
+        }
+      }
+    } catch (err) {
+      console.error("[ROLE] Failed to add buyer role:", err.message);
+    }
 
     let approveEmbed;
     const productKey = getProductKey(data.product);
@@ -1360,6 +1407,47 @@ async function handleSlash(interaction) {
 async function handleButton(interaction) {
   const { customId, guild, user, member, channel } = interaction;
 
+  // ── HWID Reset Button (Self) ──────────────────────────────────────────
+  if (customId === "hwid_reset_self") {
+    return interaction.showModal(
+      new ModalBuilder()
+        .setCustomId("modal_hwid_reset_self")
+        .setTitle("Reset Your HWID")
+        .addComponents(
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId("hwid_key_input")
+              .setLabel("Enter your key")
+              .setStyle(TextInputStyle.Short)
+              .setRequired(true)
+              .setMaxLength(50)
+              .setPlaceholder("e.g., KA-XXXX-XXXX-XXXX-XXXX")
+          )
+        )
+    );
+  }
+
+  // ── HWID Reset Button (Admin) ─────────────────────────────────────────
+  if (customId === "hwid_reset_admin") {
+    if (!isAdmin(member)) return safeReply(interaction, { content: "No permission." });
+    return interaction.showModal(
+      new ModalBuilder()
+        .setCustomId("modal_hwid_reset_admin")
+        .setTitle("Admin HWID Reset")
+        .addComponents(
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId("hwid_key_input")
+              .setLabel("Enter the key to reset")
+              .setStyle(TextInputStyle.Short)
+              .setRequired(true)
+              .setMaxLength(50)
+              .setPlaceholder("e.g., KA-XXXX-XXXX-XXXX-XXXX")
+          )
+        )
+    );
+  }
+
   if (customId === "trial_redeem") {
     const trial = trials.find(t => t.messageId === interaction.message.id);
     if (!trial) return safeReply(interaction, { content: "This trial panel is no longer valid." });
@@ -1540,6 +1628,20 @@ async function handleButton(interaction) {
     saveAll();
     trackMessage(ticketId, "SYSTEM", `[APPROVED] Payment approved by ${user.tag}`);
 
+    // ── Give buyer role if they don't have it ──────────────────────────
+    try {
+      const targetMember = await guild.members.fetch(data.userId).catch(() => null);
+      if (targetMember) {
+        const buyerRoleId = CONFIG.BUYER_ROLE_ID;
+        if (buyerRoleId && !targetMember.roles.cache.has(buyerRoleId)) {
+          await targetMember.roles.add(buyerRoleId);
+          console.log(`[ROLE] Added buyer role to ${targetMember.user.tag}`);
+        }
+      }
+    } catch (err) {
+      console.error("[ROLE] Failed to add buyer role:", err.message);
+    }
+
     const targetCh = guild.channels.cache.get(ticketId);
     if (targetCh) {
       let approveEmbed;
@@ -1643,13 +1745,63 @@ async function handleButton(interaction) {
 async function handleModal(interaction) {
   const { customId, guild, user } = interaction;
 
+  // ── HWID Reset Modal (Self) ───────────────────────────────────────────
+  if (customId === "modal_hwid_reset_self") {
+    const key = interaction.fields.getTextInputValue("hwid_key_input").trim();
+    
+    // Check trial keys first (users can only self-reset trial keys)
+    const trialData = global.trialKeys.find(k => k.key === key);
+    if (trialData) {
+      if (trialData.userId !== user.id) {
+        return interaction.reply({ content: "❌ This key does not belong to you.", flags: 64 });
+      }
+      trialData.hwid = null;
+      return interaction.reply({ 
+        content: "✅ HWID reset successfully! The key can now be bound to a new device.", 
+        flags: 64 
+      });
+    }
+
+    // Check if it's a paid key (they can't self-reset)
+    const paidData = keys.find(k => k.key === key);
+    if (paidData) {
+      return interaction.reply({ 
+        content: "❌ This is a paid key. Please contact an admin to reset your HWID using the **Admin Reset** button.", 
+        flags: 64 
+      });
+    }
+
+    return interaction.reply({ content: "❌ Key not found.", flags: 64 });
+  }
+
+  // ── HWID Reset Modal (Admin) ──────────────────────────────────────────
+  if (customId === "modal_hwid_reset_admin") {
+    const key = interaction.fields.getTextInputValue("hwid_key_input").trim();
+    
+    // Check paid keys
+    const paidData = keys.find(k => k.key === key);
+    if (paidData) {
+      paidData.hwid = null;
+      saveAll();
+      return interaction.reply({ content: "✅ HWID reset for paid key. Key can be bound to a new device.", flags: 64 });
+    }
+
+    // Check trial keys
+    const trialData = global.trialKeys.find(k => k.key === key);
+    if (trialData) {
+      trialData.hwid = null;
+      return interaction.reply({ content: "✅ HWID reset for trial key. Key can be bound to a new device.", flags: 64 });
+    }
+
+    return interaction.reply({ content: "❌ Key not found.", flags: 64 });
+  }
+
   if (customId === "modal_trial_loadstring") {
     const key = interaction.fields.getTextInputValue("key_input").trim();
     const data = keys.find(k => k.key === key) || global.trialKeys.find(k => k.key === key);
     if (!data) return interaction.reply({ content: "❌ Key not found.", flags: 64 });
     if (data.userId !== user.id) return interaction.reply({ content: "❌ This key does not belong to you.", flags: 64 });
 
-    // Only return the loadstring line, no _G.KEY assignment
     const loaderUrl = SCRIPT_LOADERS[data.product] || "https://example.com/script";
     const scriptLoadOnly = `loadstring(game:HttpGet("${loaderUrl}"))()`;
     return interaction.reply({ content: `Your loadstring:\n\`\`\`lua\n${scriptLoadOnly}\n\`\`\``, flags: 64 });
@@ -1657,7 +1809,6 @@ async function handleModal(interaction) {
 
   if (customId === "modal_trial_resethwid") {
     const key = interaction.fields.getTextInputValue("key_input").trim();
-    // Only trial keys can be reset via this button modal
     const trialData = global.trialKeys.find(k => k.key === key);
     if (!trialData) return interaction.reply({ content: "❌ Key not found or not a trial key. Use /resethwid command for paid keys.", flags: 64 });
     if (trialData.userId !== user.id) return interaction.reply({ content: "❌ This key does not belong to you.", flags: 64 });
