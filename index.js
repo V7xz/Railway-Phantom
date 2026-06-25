@@ -44,7 +44,8 @@ const SCRIPT_LOADERS = {
   killaura: process.env.LOADER_KILLAURA || "https://vss.pandauth.com/kv/aac058ad34f97422",
   combat:   process.env.LOADER_COMBAT   || "https://vss.pandauth.com/kv/aac058ad34f97422",
   autofarm: process.env.LOADER_AUTOFARM || "https://vss.pandauth.com/kv/aac058ad34f97422",
-  fps:      process.env.LOADER_FPS      || "https://vss.pandauth.com/kv/aac058ad34f97422"
+  fps:      process.env.LOADER_FPS      || "https://vss.pandauth.com/kv/aac058ad34f97422",
+  multifarm: process.env.LOADER_MULTIFARM || "https://vss.pandauth.com/kv/aac058ad34f97422"
 };
 
 // ── Product prefixes for paid keys ──────────────────────────────────────
@@ -52,7 +53,8 @@ const PRODUCT_PREFIXES = {
   killaura: "KA",
   combat:   "CB",
   autofarm: "AF",
-  fps:      "FP"
+  fps:      "FP",
+  multifarm: "MF"
 };
 
 // ── Free prefixes for trial keys ────────────────────────────────────────
@@ -60,7 +62,8 @@ const FREE_PREFIXES = {
   killaura: "KAFREE",
   combat:   "CBFREE",
   autofarm: "AFFREE",
-  fps:      "FPFREE"
+  fps:      "FPFREE",
+  multifarm: "MFFREE"
 };
 
 /* =====================================================
@@ -103,14 +106,15 @@ const PRICES = {
   combat:   { "1d": 12000, "3d": 25000, "7d": 50000, "30d": 80000, "perm": 100000 },
   autofarm: { "1d": 10000, "3d": 20000, "7d": 40000, "30d": 80000, "perm": 100000 },
   fps:      { "perm": 35000 },
-  external: { "perm": 110000 }
+  external: { "perm": 110000 },
+  multifarm: { "1d": 15000, "3d": 30000, "7d": 60000, "30d": 130000 }
 };
 
 // ── USD approximations ──────────────────────────────────────────────────
 const USD_APPROX = {
   10000: "0.63", 12000: "0.75", 15000: "0.94", 20000: "1.25", 25000: "1.56",
   30000: "1.88", 35000: "2.19", 40000: "2.50", 50000: "3.13", 60000: "3.75",
-  80000: "5.00", 100000: "6.25", 110000: "6.88", 120000: "7.50"
+  80000: "5.00", 100000: "6.25", 110000: "6.88", 120000: "7.50", 130000: "8.13"
 };
 
 function getUSDApprox(idr) {
@@ -128,6 +132,7 @@ function getProductKey(productName) {
   if (productName === "Auto Farm") return "autofarm";
   if (productName === "FPS") return "fps";
   if (productName === "Roblox External") return "external";
+  if (productName === "MultiFarm") return "multifarm";
   return null;
 }
 
@@ -612,7 +617,13 @@ function pricingDetailEmbed() {
       `, inline: true },
       { name: "External — Roblox External", value: `
 • Lifetime: ${formatPriceIDRUSD(PRICES.external["perm"])}
-      `, inline: false }
+      `, inline: false },
+      { name: "MultiFarm 🌾", value: `
+• 1 Day: ${formatPriceIDRUSD(PRICES.multifarm["1d"])}
+• 3 Days: ${formatPriceIDRUSD(PRICES.multifarm["3d"])}
+• 7 Days: ${formatPriceIDRUSD(PRICES.multifarm["7d"])}
+• 1 Month: ${formatPriceIDRUSD(PRICES.multifarm["30d"])}
+      `, inline: true }
     )
     .setFooter({ text: "Prices are subject to change. Confirm final amount before paying." })
     .setTimestamp();
@@ -647,14 +658,39 @@ const commands = [
   new SlashCommandBuilder()
     .setName("genkey").setDescription("Generate script key")
     .addStringOption(o => o.setName("product").setDescription("Select script type").setRequired(true)
-      .addChoices({ name:"Kill Aura", value:"killaura" }, { name:"Combat (Silent Aim)", value:"combat" }, { name:"Auto Farm", value:"autofarm" }, { name:"FPS", value:"fps" }))
+      .addChoices(
+        { name:"Kill Aura", value:"killaura" },
+        { name:"Combat (Silent Aim)", value:"combat" },
+        { name:"Auto Farm", value:"autofarm" },
+        { name:"FPS", value:"fps" },
+        { name:"MultiFarm 🌾", value:"multifarm" }
+      ))
     .addStringOption(o => o.setName("duration").setDescription("Key duration").setRequired(true)
-      .addChoices({ name:"1 Hour", value:"1h" }, { name:"3 Hours", value:"3h" }, { name:"6 Hours", value:"6h" }, { name:"12 Hours", value:"12h" }, { name:"1 Day", value:"1d" }, { name:"3 Days", value:"3d" }, { name:"7 Days", value:"7d" }, { name:"30 Days", value:"30d" }, { name:"Lifetime", value:"perm" })),
+      .addChoices(
+        { name:"1 Hour", value:"1h" },
+        { name:"3 Hours", value:"3h" },
+        { name:"6 Hours", value:"6h" },
+        { name:"12 Hours", value:"12h" },
+        { name:"1 Day", value:"1d" },
+        { name:"3 Days", value:"3d" },
+        { name:"7 Days", value:"7d" },
+        { name:"30 Days", value:"30d" },
+        { name:"Lifetime", value:"perm" }
+      )),
   new SlashCommandBuilder()
     .setName("extendkey").setDescription("Extend key duration")
     .addStringOption(o => o.setName("key").setDescription("Key to extend").setRequired(true))
     .addStringOption(o => o.setName("duration").setDescription("Duration to add").setRequired(true)
-      .addChoices({ name:"1 Hour", value:"1h" }, { name:"3 Hours", value:"3h" }, { name:"6 Hours", value:"6h" }, { name:"12 Hours", value:"12h" }, { name:"1 Day", value:"1d" }, { name:"3 Days", value:"3d" }, { name:"7 Days", value:"7d" }, { name:"30 Days", value:"30d" })),
+      .addChoices(
+        { name:"1 Hour", value:"1h" },
+        { name:"3 Hours", value:"3h" },
+        { name:"6 Hours", value:"6h" },
+        { name:"12 Hours", value:"12h" },
+        { name:"1 Day", value:"1d" },
+        { name:"3 Days", value:"3d" },
+        { name:"7 Days", value:"7d" },
+        { name:"30 Days", value:"30d" }
+      )),
   new SlashCommandBuilder().setName("revokekey").setDescription("Delete key").addStringOption(o => o.setName("key").setDescription("Key").setRequired(true)),
   new SlashCommandBuilder().setName("checkkey").setDescription("Check key (admin)").addStringOption(o => o.setName("key").setDescription("Key").setRequired(true)),
   new SlashCommandBuilder().setName("resethwid").setDescription("Reset HWID (admin)").addStringOption(o => o.setName("key").setDescription("Key").setRequired(true)),
@@ -662,7 +698,10 @@ const commands = [
     .setName("keylist")
     .setDescription("List all keys (admin)")
     .addStringOption(o => o.setName("type").setDescription("Filter by key type").setRequired(false)
-      .addChoices({ name:"Paid Keys", value:"paid" }, { name:"Trial Keys", value:"trial" })),
+      .addChoices(
+        { name:"Paid Keys", value:"paid" },
+        { name:"Trial Keys", value:"trial" }
+      )),
   new SlashCommandBuilder()
     .setName("checkmykey")
     .setDescription("Check any key")
@@ -670,11 +709,34 @@ const commands = [
   new SlashCommandBuilder()
     .setName("setuptrials").setDescription("Send a trial claim panel")
     .addStringOption(o => o.setName("product").setDescription("Which script to give as trial").setRequired(true)
-      .addChoices({ name:"Kill Aura", value:"killaura" }, { name:"Combat (Silent Aim)", value:"combat" }, { name:"Auto Farm", value:"autofarm" }, { name:"FPS", value:"fps" }))
+      .addChoices(
+        { name:"Kill Aura", value:"killaura" },
+        { name:"Combat (Silent Aim)", value:"combat" },
+        { name:"Auto Farm", value:"autofarm" },
+        { name:"FPS", value:"fps" },
+        { name:"MultiFarm 🌾", value:"multifarm" }
+      ))
     .addStringOption(o => o.setName("duration").setDescription("Trial duration").setRequired(true)
-      .addChoices({ name:"1 Hour", value:"1h" }, { name:"3 Hours", value:"3h" }, { name:"6 Hours", value:"6h" }, { name:"12 Hours", value:"12h" }, { name:"1 Day", value:"1d" }, { name:"3 Days", value:"3d" }, { name:"7 Days", value:"7d" }))
+      .addChoices(
+        { name:"1 Hour", value:"1h" },
+        { name:"3 Hours", value:"3h" },
+        { name:"6 Hours", value:"6h" },
+        { name:"12 Hours", value:"12h" },
+        { name:"1 Day", value:"1d" },
+        { name:"3 Days", value:"3d" },
+        { name:"7 Days", value:"7d" }
+      ))
     .addStringOption(o => o.setName("expires").setDescription("How long the claim button stays active").setRequired(true)
-      .addChoices({ name:"1 Hour", value:"1h" }, { name:"3 Hours", value:"3h" }, { name:"6 Hours", value:"6h" }, { name:"12 Hours", value:"12h" }, { name:"1 Day", value:"1d" }, { name:"2 Days", value:"2d" }, { name:"3 Days", value:"3d" }, { name:"7 Days", value:"7d" })),
+      .addChoices(
+        { name:"1 Hour", value:"1h" },
+        { name:"3 Hours", value:"3h" },
+        { name:"6 Hours", value:"6h" },
+        { name:"12 Hours", value:"12h" },
+        { name:"1 Day", value:"1d" },
+        { name:"2 Days", value:"2d" },
+        { name:"3 Days", value:"3d" },
+        { name:"7 Days", value:"7d" }
+      )),
   // NEW COMMANDS (ONLY ONCE!)
   new SlashCommandBuilder()
     .setName("addcode")
@@ -1126,7 +1188,7 @@ async function handleSlash(interaction) {
 
     let approveEmbed;
     const productKey = getProductKey(data.product);
-    if (["killaura", "combat", "autofarm", "fps"].includes(productKey)) {
+    if (["killaura", "combat", "autofarm", "fps", "multifarm"].includes(productKey)) {
       const seconds = parseDuration(data.duration);
       const durationMs = seconds ? seconds * 1000 : 0;
       const key = createKey(productKey, durationMs, data.userId);
@@ -1214,7 +1276,7 @@ async function handleSlash(interaction) {
     if (genlogChannelId) {
       const logCh = client.channels.cache.get(genlogChannelId);
       if (logCh) {
-        const productNames = { killaura: "Kill Aura", combat: "Combat (Silent Aim)", autofarm: "Auto Farm", fps: "FPS" };
+        const productNames = { killaura: "Kill Aura", combat: "Combat (Silent Aim)", autofarm: "Auto Farm", fps: "FPS", multifarm: "MultiFarm" };
         const logEmbed = new EmbedBuilder()
           .setColor(0x00ff99)
           .setTitle("🔑 Key Generated")
@@ -1232,7 +1294,8 @@ async function handleSlash(interaction) {
       killaura: "Kill Aura",
       combat: "Combat (Silent Aim)",
       autofarm: "Auto Farm",
-      fps: "FPS"
+      fps: "FPS",
+      multifarm: "MultiFarm"
     };
 
     const embed = new EmbedBuilder()
@@ -1573,7 +1636,7 @@ async function handleSlash(interaction) {
     const expireSeconds = parseDuration(expireStr);
     const expireAt = Date.now() + expireSeconds * 1000;
 
-    const productNames = { killaura: "Kill Aura", combat: "Combat (Silent Aim)", autofarm: "Auto Farm", fps: "FPS" };
+    const productNames = { killaura: "Kill Aura", combat: "Combat (Silent Aim)", autofarm: "Auto Farm", fps: "FPS", multifarm: "MultiFarm" };
 
     const embed = new EmbedBuilder()
       .setColor(COLOR_MAIN)
@@ -1682,7 +1745,7 @@ async function handleButton(interaction) {
     if (alreadyClaimed) return interaction.reply({ content: "❌ You have already claimed a trial key before.", flags: 64 });
 
     const key = createKey(trial.product, trial.durationMs, userId, true);
-    const productNames = { killaura: "Kill Aura", combat: "Combat (Silent Aim)", autofarm: "Auto Farm", fps: "FPS" };
+    const productNames = { killaura: "Kill Aura", combat: "Combat (Silent Aim)", autofarm: "Auto Farm", fps: "FPS", multifarm: "MultiFarm" };
     const durationText = formatDurasi(trial.durationMs / 1000);
     
     const redeemEmbed = new EmbedBuilder()
@@ -1869,7 +1932,7 @@ async function handleButton(interaction) {
     if (targetCh) {
       let approveEmbed;
       const productKey = getProductKey(data.product);
-      if (["killaura", "combat", "autofarm", "fps"].includes(productKey)) {
+      if (["killaura", "combat", "autofarm", "fps", "multifarm"].includes(productKey)) {
         const seconds = parseDuration(data.duration);
         const durationMs = seconds ? seconds * 1000 : 0;
         const key = createKey(productKey, durationMs, data.userId);
@@ -2339,7 +2402,8 @@ async function handleSelect(interaction) {
           { label: "Kill Aura",           value: "killaura", description: "Aimbot / Kill aura" },
           { label: "Combat (Silent Aim)", value: "combat",   description: "Silent Aim included" },
           { label: "Auto Farm",           value: "autofarm", description: "Auto farming features" },
-          { label: "FPS",                 value: "fps",      description: "FPS Booster" }
+          { label: "FPS",                 value: "fps",      description: "FPS Booster" },
+          { label: "MultiFarm 🌾",        value: "multifarm", description: "Multi-farming features" }
         ]);
 
       await interaction.update({
@@ -2363,7 +2427,7 @@ async function handleSelect(interaction) {
     if (!data || data.userId !== user.id) return safeReply(interaction, { content: "Not your order." });
 
     const subValue = interaction.values[0];
-    const names = { killaura: "Kill Aura", combat: "Combat (Silent Aim)", autofarm: "Auto Farm", fps: "FPS" };
+    const names = { killaura: "Kill Aura", combat: "Combat (Silent Aim)", autofarm: "Auto Farm", fps: "FPS", multifarm: "MultiFarm" };
     data.product = names[subValue] || subValue;
     saveAll();
 
