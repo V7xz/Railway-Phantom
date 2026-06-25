@@ -82,7 +82,7 @@ const CONFIG = {
   COOLDOWN_MS: 3000,
   MAX_OPEN_TICKETS_PER_USER: 10,
   TRANSCRIPT_CHANNEL_NAME: "transcript",
-  UNBOUND_KEY_TTL_DAYS: 365
+  KEY_EXPIRY_CHECK_INTERVAL: 3600000
 };
 
 const COLORS = {
@@ -91,7 +91,9 @@ const COLORS = {
   green: 0x57f287,
   red: 0xed4245,
   yellow: 0xfee75c,
-  gray: 0x2b2d31
+  gray: 0x2b2d31,
+  cyan: 0x00ffff,
+  orange: 0xffa500
 };
 
 const COLOR_MAIN = COLORS.main;
@@ -99,6 +101,8 @@ const COLOR_RED = COLORS.red;
 const COLOR_GREEN = COLORS.green;
 const COLOR_YELLOW = COLORS.yellow;
 const COLOR_GRAY = COLORS.gray;
+const COLOR_CYAN = COLORS.cyan;
+const COLOR_ORANGE = COLORS.orange;
 
 // ── Pricing data (IDR) ──────────────────────────────────────────────────
 const PRICES = {
@@ -315,16 +319,19 @@ function generateTrialKey(productKey) {
 
 function createKey(productKey, durationMs, userId, isTrial = false) {
   const key = isTrial ? generateTrialKey(productKey) : generateKey(productKey);
+  const expiresAt = durationMs > 0 ? Date.now() + durationMs : 0;
   const entry = {
     key,
     product: productKey,
     duration: durationMs,
-    expires: 0,
+    expires: expiresAt,
     hwid: null,
     userId: userId,
     created: Date.now(),
     trial: isTrial || false,
-    usageCount: 0
+    usageCount: 0,
+    isActive: true,
+    expired: false
   };
 
   if (isTrial) {
@@ -620,7 +627,7 @@ function pricingDetailEmbed() {
 }
 
 /* =====================================================
-   COMMANDS - setuphwid REMOVED!
+   COMMANDS
 ===================================================== */
 
 const commands = [
@@ -685,11 +692,13 @@ const commands = [
   new SlashCommandBuilder().setName("resethwid").setDescription("Reset HWID (admin)").addStringOption(o => o.setName("key").setDescription("Key").setRequired(true)),
   new SlashCommandBuilder()
     .setName("keylist")
-    .setDescription("List all keys (admin)")
+    .setDescription("List all active keys (admin)")
     .addStringOption(o => o.setName("type").setDescription("Filter by key type").setRequired(false)
       .addChoices(
+        { name:"Active Keys", value:"active" },
         { name:"Paid Keys", value:"paid" },
-        { name:"Trial Keys", value:"trial" }
+        { name:"Trial Keys", value:"trial" },
+        { name:"All Keys", value:"all" }
       )),
   new SlashCommandBuilder()
     .setName("checkmykey")
@@ -770,6 +779,14 @@ client.once("ready", async () => {
   console.log("GUILD_ID:", GUILD_ID);
 
   try {
+    console.log("🧹 Clearing old guild commands...");
+    await rest.put(
+      Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
+      { body: [] }
+    );
+    console.log("✅ Old commands cleared!");
+
+    console.log(`📝 Registering ${commands.length} commands...`);
     await rest.put(
       Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
       { body: commands }
@@ -780,6 +797,7 @@ client.once("ready", async () => {
     console.error("Registration failed:", err.message);
   }
   
+  // ── Ticket auto-close interval ──────────────────────────────────────────
   setInterval(async () => {
     const now = Date.now();
     for (const data of orders) {
@@ -808,36 +826,76 @@ client.once("ready", async () => {
     }
   }, 30 * 60 * 1000);
 
+  // ── KEY EXPIRY CHECK & CLEANUP ─────────────────────────────────────────
+  // Runs every hour to remove expired keys
   setInterval(() => {
     const now = Date.now();
-    const ttl = CONFIG.UNBOUND_KEY_TTL_DAYS * 86400 * 1000;
+    let removedCount = 0;
+    let expiredCount = 0;
+    
+    // Check for expired keys and remove them
     const beforeCount = keys.length;
-
+    
     keys = keys.filter(k => {
-      if (k.expires === 0 && k.duration > 0 && now - (k.created || 0) > ttl) {
-        console.log(`[CLEANUP] Removing very old unbound key ${k.key} – older than ${CONFIG.UNBOUND_KEY_TTL_DAYS} days`);
+      // Check if key is expired (has expiry date and current time > expiry)
+      if (k.expires > 0 && now > k.expires) {
+        console.log(`[EXPIRED] Removing expired key ${k.key} (expired on ${new Date(k.expires).toISOString()})`);
+        expiredCount++;
+        // Remove from keyUsage as well
+        if (keyUsage[k.key]) {
+          delete keyUsage[k.key];
+        }
         return false;
       }
       return true;
     });
 
-    if (keys.length < beforeCount) {
-      saveAll();
-      console.log(`[CLEANUP] Removed ${beforeCount - keys.length} very old keys`);
-    }
-  }, 24 * 60 * 60 * 1000);
-
-  setInterval(() => {
-    const now = Date.now();
-    const before = global.trialKeys.length;
+    // Clean up trial keys too
+    const trialBefore = global.trialKeys.length;
     global.trialKeys = global.trialKeys.filter(k => {
-      if (k.expires !== 0 && now > k.expires) return false;
+      if (k.expires > 0 && now > k.expires) {
+        console.log(`[EXPIRED] Removing expired trial key ${k.key}`);
+        return false;
+      }
       return true;
     });
-    if (global.trialKeys.length < before) {
-      console.log(`[TRIAL CLEANUP] Removed ${before - global.trialKeys.length} expired trial keys`);
+
+    if (keys.length < beforeCount || global.trialKeys.length < trialBefore) {
+      saveAll();
+      console.log(`[CLEANUP] Removed ${beforeCount - keys.length} expired paid keys`);
+      console.log(`[CLEANUP] Removed ${trialBefore - global.trialKeys.length} expired trial keys`);
     }
-  }, 60 * 60 * 1000);
+  }, CONFIG.KEY_EXPIRY_CHECK_INTERVAL);
+
+  // ── Also run cleanup on startup ──────────────────────────────────────
+  setTimeout(() => {
+    const now = Date.now();
+    const beforeCount = keys.length;
+    
+    keys = keys.filter(k => {
+      if (k.expires > 0 && now > k.expires) {
+        console.log(`[STARTUP CLEANUP] Removing expired key ${k.key}`);
+        if (keyUsage[k.key]) {
+          delete keyUsage[k.key];
+        }
+        return false;
+      }
+      return true;
+    });
+    
+    global.trialKeys = global.trialKeys.filter(k => {
+      if (k.expires > 0 && now > k.expires) {
+        console.log(`[STARTUP CLEANUP] Removing expired trial key ${k.key}`);
+        return false;
+      }
+      return true;
+    });
+    
+    if (keys.length < beforeCount) {
+      saveAll();
+      console.log(`[STARTUP CLEANUP] Removed ${beforeCount - keys.length} expired keys`);
+    }
+  }, 10000);
 });
 
 /* =====================================================
@@ -1221,7 +1279,7 @@ async function handleSlash(interaction) {
     const key = createKey(productKey, durationMs, interaction.user.id);
     const loaderUrl = SCRIPT_LOADERS[productKey];
     const scriptReady = `loadstring(game:HttpGet("${loaderUrl}"))()`;
-    const expireText = seconds ? `Starts when first used` : `Lifetime`;
+    const expireText = seconds ? `Starts when first used` : "Lifetime";
 
     if (genlogChannelId) {
       const logCh = client.channels.cache.get(genlogChannelId);
@@ -1282,6 +1340,7 @@ async function handleSlash(interaction) {
 
     if (entry.expires === 0) {
       entry.duration += addSeconds * 1000;
+      entry.expires = Date.now() + entry.duration;
     } else {
       const now = Date.now();
       const currentExpiry = entry.expires;
@@ -1295,7 +1354,7 @@ async function handleSlash(interaction) {
       .addFields(
         { name: "Key", value: `\`${key}\`` },
         { name: "Added Time", value: formatDurasi(addSeconds), inline: true },
-        { name: "Current Expiry", value: entry.expires === 0 ? "Not yet bound" : new Date(entry.expires).toLocaleString("id-ID") }
+        { name: "New Expiry", value: new Date(entry.expires).toLocaleString("id-ID") }
       )
       .setTimestamp();
 
@@ -1317,38 +1376,56 @@ async function handleSlash(interaction) {
     const isExpired = !isUnbound && !isPermanent && data.expires !== 0 && now > data.expires;
     const isActive = !isUnbound && !isPermanent && data.expires !== 0 && now <= data.expires;
 
-    let statusText, expiryDisplay, color;
+    let statusText, expiryDisplay, color, statusEmoji;
     if (isPermanent) {
-      statusText = "🟢 Permanent";
+      statusText = "Permanent";
       expiryDisplay = "Never";
-      color = COLOR_MAIN;
+      color = COLOR_GREEN;
+      statusEmoji = "💎";
     } else if (isUnbound) {
-      statusText = "🟡 Unbound (timer not started)";
-      expiryDisplay = `Starts when first used\nDuration: ${formatDurasi(data.duration / 1000)}`;
+      statusText = "Unbound (Timer Not Started)";
+      expiryDisplay = `Starts on first use\nDuration: ${formatDurasi(data.duration / 1000)}`;
       color = COLOR_YELLOW;
+      statusEmoji = "🔄";
     } else if (isExpired) {
-      statusText = "🔴 Expired";
+      statusText = "EXPIRED";
       expiryDisplay = new Date(data.expires).toLocaleString("id-ID");
       color = COLOR_RED;
+      statusEmoji = "❌";
     } else {
-      statusText = "🟢 Active";
+      statusText = "Active";
       expiryDisplay = new Date(data.expires).toLocaleString("id-ID");
-      color = COLOR_MAIN;
+      color = COLOR_GREEN;
+      statusEmoji = "✅";
     }
+
+    const productNames = {
+      killaura: "Kill Aura",
+      combat: "Combat (Silent Aim)",
+      autofarm: "Auto Farm",
+      fps: "FPS",
+      multifarm: "MultiFarm",
+      external: "Roblox External"
+    };
 
     const embed = new EmbedBuilder()
       .setColor(color)
-      .setTitle("🔑 Key Details")
+      .setTitle(`🔑 Key Details - ${statusEmoji} ${statusText}`)
       .addFields(
-        { name: "Key", value: `\`${data.key}\`` },
-        { name: "Product", value: data.product || "Unknown", inline: true },
+        { name: "Key", value: `\`${data.key}\``, inline: false },
+        { name: "Product", value: productNames[data.product] || data.product || "Unknown", inline: true },
+        { name: "Type", value: data.trial ? "🔰 Trial" : "💎 Paid", inline: true },
         { name: "Created", value: new Date(data.created).toLocaleString("id-ID"), inline: true },
         { name: "Expires", value: expiryDisplay, inline: true },
-        { name: "Status", value: statusText, inline: true },
+        { name: "Status", value: `${statusEmoji} ${statusText}`, inline: true },
         { name: "HWID", value: data.hwid || "Not bound", inline: true },
-        { name: "Type", value: data.trial ? "🔰 Trial" : "💎 Paid", inline: true }
+        { name: "Usage Count", value: `${data.usageCount || 0} times`, inline: true }
       )
       .setTimestamp();
+
+    if (isExpired) {
+      embed.setDescription("⚠️ **This key has expired and can no longer be used.**");
+    }
 
     return interaction.reply({ embeds: [embed], flags: 64 });
   }
@@ -1361,6 +1438,7 @@ async function handleSlash(interaction) {
     const paidIndex = keys.findIndex(k => k.key === key);
     if (paidIndex !== -1) {
       keys.splice(paidIndex, 1);
+      if (keyUsage[key]) delete keyUsage[key];
       saveAll();
       return interaction.reply({ content: "✅ Key revoked.", flags: 64 });
     }
@@ -1395,66 +1473,156 @@ async function handleSlash(interaction) {
     return interaction.reply({ content: "❌ Key not found.", flags: 64 });
   }
 
+  // ── PROFESSIONAL KEYLIST - ONLY SHOWS ACTIVE KEYS ────────────────────
   if (commandName === "keylist") {
     if (!isAdmin(member) && !isAdminByRole(interaction))
       return interaction.reply({ content: "No permission.", flags: 64 });
 
     refreshKeys();
     
-    const filterType = options.getString("type") || "paid";
-    let allKeys = [];
+    const filterType = options.getString("type") || "active";
+    const now = Date.now();
     
-    if (filterType === "paid") {
-      allKeys = [...keys];
+    // Get all keys (paid + trial)
+    const paidKeys = [...keys];
+    const trialKeys = [...global.trialKeys];
+    
+    // Filter out expired keys from the list (expired keys are removed from storage)
+    // But also filter out any that might have expired but not yet cleaned up
+    const allKeys = [...paidKeys, ...trialKeys].filter(k => {
+      // If it has an expiry and it's past due, it's expired
+      if (k.expires > 0 && now > k.expires) return false;
+      return true;
+    });
+    
+    let filteredKeys = [];
+    let filterLabel = "Active Keys";
+    
+    if (filterType === "all") {
+      filteredKeys = allKeys;
+      filterLabel = "All Keys";
+    } else if (filterType === "active") {
+      filteredKeys = allKeys.filter(k => {
+        if (k.duration === 0) return true; // Permanent
+        if (k.expires === 0) return false; // Unbound not started
+        return now <= k.expires;
+      });
+      filterLabel = "Active Keys";
+    } else if (filterType === "paid") {
+      filteredKeys = allKeys.filter(k => !k.trial);
+      filterLabel = "Paid Keys";
     } else if (filterType === "trial") {
-      allKeys = [...global.trialKeys];
+      filteredKeys = allKeys.filter(k => k.trial);
+      filterLabel = "Trial Keys";
+    } else {
+      filteredKeys = allKeys;
+      filterLabel = "All Keys";
     }
     
-    if (allKeys.length === 0) return interaction.reply({ content: `📭 No ${filterType} keys in database.`, flags: 64 });
+    // Sort by created date (newest first)
+    filteredKeys.sort((a, b) => (b.created || 0) - (a.created || 0));
+    
+    if (filteredKeys.length === 0) {
+      return interaction.reply({ 
+        content: `📭 No **${filterLabel}** found in the database.`,
+        flags: 64 
+      });
+    }
 
-    const itemsPerPage = 10;
+    const itemsPerPage = 8;
     const pages = [];
-    for (let i = 0; i < allKeys.length; i += itemsPerPage) {
-      pages.push(allKeys.slice(i, i + itemsPerPage));
+    for (let i = 0; i < filteredKeys.length; i += itemsPerPage) {
+      pages.push(filteredKeys.slice(i, i + itemsPerPage));
     }
 
     let currentPage = 0;
 
-    const generateEmbed = (page) => {
-      const now = Date.now();
+    const generateKeyListEmbed = (page) => {
       const keyList = pages[page];
-      const typeLabel = filterType === "trial" ? "Trial" : "Paid";
+      const totalKeys = filteredKeys.length;
+      const totalPages = pages.length;
+      
+      // Count stats
+      const activeCount = filteredKeys.filter(k => {
+        if (k.duration === 0) return true;
+        if (k.expires === 0) return false;
+        return now <= k.expires;
+      }).length;
+      
+      const unboundCount = filteredKeys.filter(k => k.expires === 0 && k.duration > 0).length;
+      const permanentCount = filteredKeys.filter(k => k.duration === 0).length;
+      const paidCount = filteredKeys.filter(k => !k.trial).length;
+      const trialCount = filteredKeys.filter(k => k.trial).length;
+      
+      const productEmojis = {
+        killaura: "⚔️",
+        combat: "🎯",
+        autofarm: "🌾",
+        fps: "⚡",
+        multifarm: "🌿",
+        external: "🌐"
+      };
+      
+      const productNames = {
+        killaura: "Kill Aura",
+        combat: "Combat",
+        autofarm: "Auto Farm",
+        fps: "FPS",
+        multifarm: "MultiFarm",
+        external: "External"
+      };
+
       const embed = new EmbedBuilder()
         .setColor(COLOR_MAIN)
-        .setTitle(`🔑 ${typeLabel} Key List (Page ${page + 1}/${pages.length})`)
-        .setFooter({ text: `${allKeys.length} total ${filterType} keys` });
+        .setTitle(`🔑 ${filterLabel}`)
+        .setDescription(`Showing keys **${page * itemsPerPage + 1} - ${Math.min((page + 1) * itemsPerPage, totalKeys)}** of **${totalKeys}** total keys`)
+        .addFields(
+          { name: "📊 Stats", value: `🟢 Active: ${activeCount}\n🟡 Unbound: ${unboundCount}\n💎 Permanent: ${permanentCount}\n💎 Paid: ${paidCount}\n🔰 Trial: ${trialCount}`, inline: true },
+          { name: "📋 Page", value: `${page + 1}/${totalPages}`, inline: true },
+          { name: "🔍 Filter", value: filterLabel, inline: true }
+        )
+        .setFooter({ text: "Keys are sorted by creation date (newest first) • Expired keys are auto-removed" })
+        .setTimestamp();
 
+      // Add each key as a field
       keyList.forEach(data => {
         const isUnbound = data.expires === 0 && data.duration > 0;
         const isPermanent = data.duration === 0;
-        const isExpired = !isUnbound && !isPermanent && data.expires !== 0 && now > data.expires;
         const isActive = !isUnbound && !isPermanent && data.expires !== 0 && now <= data.expires;
 
-        let statusIcon, expText;
+        let statusIcon, statusText, expText, colorDot;
         if (isPermanent) {
-          statusIcon = "🟢";
-          expText = "∞";
+          statusIcon = "💎";
+          statusText = "Permanent";
+          expText = "Never";
+          colorDot = "🟣";
         } else if (isUnbound) {
-          statusIcon = "🟡";
-          expText = `Unbound (${formatDurasi(data.duration / 1000)})`;
-        } else if (isExpired) {
-          statusIcon = "🔴";
+          statusIcon = "🔄";
+          statusText = "Unbound";
+          expText = `${formatDurasi(data.duration / 1000)} (not started)`;
+          colorDot = "🟡";
+        } else if (isActive) {
+          statusIcon = "✅";
+          statusText = "Active";
           expText = new Date(data.expires).toLocaleString("id-ID");
+          colorDot = "🟢";
         } else {
-          statusIcon = "🟢";
-          expText = new Date(data.expires).toLocaleString("id-ID");
+          statusIcon = "❌";
+          statusText = "Expired";
+          expText = "Expired";
+          colorDot = "🔴";
         }
 
+        const productEmoji = productEmojis[data.product] || "📦";
+        const productName = productNames[data.product] || data.product || "Unknown";
         const ownerText = data.userId ? `<@${data.userId}>` : "None";
+        const hwidText = data.hwid ? `\`${data.hwid.substring(0, 12)}...\`` : "Not bound";
+        const usageText = data.usageCount || 0;
+        const typeText = data.trial ? "🔰 Trial" : "💎 Paid";
 
         embed.addFields({
-          name: `${statusIcon} ${data.key}`,
-          value: `**Expires:** ${expText}\n**HWID:** ${data.hwid || "None"}\n**Product:** ${data.product || "N/A"}\n**Owner:** ${ownerText}\n**Type:** ${data.trial ? "🔰 Trial" : "💎 Paid"}`,
+          name: `${colorDot} \`${data.key}\``,
+          value: `${productEmoji} **${productName}** | ${typeText}\n${statusIcon} **Status:** ${statusText}\n⏰ **Expires:** ${expText}\n👤 **Owner:** ${ownerText}\n🔐 **HWID:** ${hwidText}\n📊 **Uses:** ${usageText}`,
           inline: false
         });
       });
@@ -1463,12 +1631,12 @@ async function handleSlash(interaction) {
     };
 
     const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(`keylist_prev_${filterType}`).setLabel("◀").setStyle(ButtonStyle.Secondary).setDisabled(true),
-      new ButtonBuilder().setCustomId(`keylist_next_${filterType}`).setLabel("▶").setStyle(ButtonStyle.Secondary).setDisabled(pages.length <= 1)
+      new ButtonBuilder().setCustomId(`keylist_prev_${filterType}`).setLabel("◀ Previous").setStyle(ButtonStyle.Secondary).setDisabled(true),
+      new ButtonBuilder().setCustomId(`keylist_next_${filterType}`).setLabel("Next ▶").setStyle(ButtonStyle.Secondary).setDisabled(pages.length <= 1)
     );
 
     const message = await interaction.reply({
-      embeds: [generateEmbed(0)],
+      embeds: [generateKeyListEmbed(0)],
       components: [row],
       flags: 64,
       fetchReply: true
@@ -1476,7 +1644,7 @@ async function handleSlash(interaction) {
 
     if (pages.length <= 1) return;
 
-    const collector = message.createMessageComponentCollector({ time: 60000 });
+    const collector = message.createMessageComponentCollector({ time: 120000 });
 
     collector.on("collect", async (btnInteraction) => {
       if (btnInteraction.user.id !== interaction.user.id) {
@@ -1490,11 +1658,14 @@ async function handleSlash(interaction) {
       }
 
       const newRow = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`keylist_prev_${filterType}`).setLabel("◀").setStyle(ButtonStyle.Secondary).setDisabled(currentPage === 0),
-        new ButtonBuilder().setCustomId(`keylist_next_${filterType}`).setLabel("▶").setStyle(ButtonStyle.Secondary).setDisabled(currentPage === pages.length - 1)
+        new ButtonBuilder().setCustomId(`keylist_prev_${filterType}`).setLabel("◀ Previous").setStyle(ButtonStyle.Secondary).setDisabled(currentPage === 0),
+        new ButtonBuilder().setCustomId(`keylist_next_${filterType}`).setLabel("Next ▶").setStyle(ButtonStyle.Secondary).setDisabled(currentPage === pages.length - 1)
       );
 
-      await btnInteraction.update({ embeds: [generateEmbed(currentPage)], components: [newRow] });
+      await btnInteraction.update({ 
+        embeds: [generateKeyListEmbed(currentPage)], 
+        components: [newRow] 
+      });
     });
 
     collector.on("end", async () => {
@@ -1539,38 +1710,56 @@ async function handleSlash(interaction) {
     const isExpired = !isUnbound && !isPermanent && data.expires !== 0 && now > data.expires;
     const isActive = !isUnbound && !isPermanent && data.expires !== 0 && now <= data.expires;
 
-    let statusText, expiryDisplay, color;
+    let statusText, expiryDisplay, color, statusEmoji;
     if (isPermanent) {
-      statusText = "🟢 Permanent";
+      statusText = "Permanent";
       expiryDisplay = "Never";
-      color = COLOR_MAIN;
+      color = COLOR_GREEN;
+      statusEmoji = "💎";
     } else if (isUnbound) {
-      statusText = "🟡 Unbound (timer not started)";
-      expiryDisplay = `Starts when first used\nDuration: ${formatDurasi(data.duration / 1000)}`;
+      statusText = "Unbound (Timer Not Started)";
+      expiryDisplay = `Starts on first use\nDuration: ${formatDurasi(data.duration / 1000)}`;
       color = COLOR_YELLOW;
+      statusEmoji = "🔄";
     } else if (isExpired) {
-      statusText = "🔴 Expired";
+      statusText = "EXPIRED";
       expiryDisplay = new Date(data.expires).toLocaleString("id-ID");
       color = COLOR_RED;
+      statusEmoji = "❌";
     } else {
-      statusText = "🟢 Active";
+      statusText = "Active";
       expiryDisplay = new Date(data.expires).toLocaleString("id-ID");
-      color = COLOR_MAIN;
+      color = COLOR_GREEN;
+      statusEmoji = "✅";
     }
+
+    const productNames = {
+      killaura: "Kill Aura",
+      combat: "Combat (Silent Aim)",
+      autofarm: "Auto Farm",
+      fps: "FPS",
+      multifarm: "MultiFarm",
+      external: "Roblox External"
+    };
 
     const embed = new EmbedBuilder()
       .setColor(color)
-      .setTitle("🔑 Key Details")
+      .setTitle(`🔑 Key Details - ${statusEmoji} ${statusText}`)
       .addFields(
-        { name: "Key", value: `\`${data.key}\`` },
-        { name: "Product", value: data.product || "Unknown", inline: true },
+        { name: "Key", value: `\`${data.key}\``, inline: false },
+        { name: "Product", value: productNames[data.product] || data.product || "Unknown", inline: true },
+        { name: "Type", value: data.trial ? "🔰 Trial" : "💎 Paid", inline: true },
         { name: "Created", value: new Date(data.created).toLocaleString("id-ID"), inline: true },
         { name: "Expires", value: expiryDisplay, inline: true },
-        { name: "Status", value: statusText, inline: true },
+        { name: "Status", value: `${statusEmoji} ${statusText}`, inline: true },
         { name: "HWID", value: data.hwid || "Not bound", inline: true },
-        { name: "Type", value: data.trial ? "🔰 Trial" : "💎 Paid", inline: true }
+        { name: "Usage Count", value: `${data.usageCount || 0} times`, inline: true }
       )
       .setTimestamp();
+
+    if (isExpired) {
+      embed.setDescription("⚠️ **This key has expired and can no longer be used.**");
+    }
 
     return interaction.reply({ embeds: [embed], flags: 64 });
   }
@@ -1636,9 +1825,9 @@ async function handleSlash(interaction) {
   }
 }
 
-/* =====================================================
-   BUTTON HANDLER
-===================================================== */
+// =====================================================
+// BUTTON HANDLER
+// =====================================================
 
 async function handleButton(interaction) {
   const { customId, guild, user, member, channel } = interaction;
@@ -1952,9 +2141,9 @@ async function handleButton(interaction) {
   }
 }
 
-/* =====================================================
-   MODAL HANDLER
-===================================================== */
+// =====================================================
+// MODAL HANDLER
+// =====================================================
 
 async function handleModal(interaction) {
   const { customId, guild, user } = interaction;
@@ -2090,9 +2279,9 @@ async function handleModal(interaction) {
   }
 }
 
-/* =====================================================
-   SELECT MENU HANDLER
-===================================================== */
+// =====================================================
+// SELECT MENU HANDLER
+// =====================================================
 
 async function resetDropdown(interaction) {
   try {
