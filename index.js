@@ -82,7 +82,7 @@ const CONFIG = {
   COOLDOWN_MS: 3000,
   MAX_OPEN_TICKETS_PER_USER: 10,
   TRANSCRIPT_CHANNEL_NAME: "transcript",
-  UNBOUND_KEY_TTL_DAYS: 7
+  UNBOUND_KEY_TTL_DAYS: 365
 };
 
 const COLORS = {
@@ -103,8 +103,8 @@ const COLOR_GRAY = COLORS.gray;
 // ── Pricing data (IDR) ──────────────────────────────────────────────────
 const PRICES = {
   killaura: { "7d": 60000, "30d": 120000 },
-  combat:   { "7d": 50000, "30d": 80000, "perm": 100000 },
-  autofarm: { "7d": 40000, "30d": 80000, "perm": 100000 },
+  combat:   { "1d": 15000, "3d": 30000, "7d": 50000, "30d": 80000, "perm": 120000 },
+  autofarm: { "3d": 20000, "7d": 40000, "30d": 80000, "perm": 100000 },
   fps:      { "perm": 35000 },
   external: { "perm": 110000 },
   multifarm: { "1d": 35000, "3d": 45000, "7d": 100000, "30d": 250000 }
@@ -112,8 +112,8 @@ const PRICES = {
 
 // ── USD approximations ──────────────────────────────────────────────────
 const USD_APPROX = {
-  10000: "0.63", 12000: "0.75", 15000: "0.94", 20000: "1.25", 25000: "1.56",
-  30000: "1.88", 35000: "2.19", 40000: "2.50", 45000: "3.00", 50000: "3.13",
+  10000: "0.63", 12000: "0.75", 15000: "1.00", 20000: "1.20", 25000: "1.56",
+  30000: "2.00", 35000: "2.19", 40000: "2.50", 45000: "3.00", 50000: "3.10",
   60000: "3.75", 80000: "5.00", 100000: "6.25", 110000: "6.88", 120000: "7.50",
   130000: "8.13", 250000: "14.00"
 };
@@ -209,14 +209,11 @@ let genlogChannelId = (() => {
     } catch { return null; }
 })();
 
-// Discount codes storage
 let discountCodes = readJSON(FILES.discounts);
 if (!discountCodes.codes) discountCodes.codes = {};
 
-// Key usage stats
 let keyUsage = readJSON(FILES.keyusage);
 
-// ── IN‑MEMORY TRIAL KEYS ────────────────────────────────────────────────
 global.trialKeys = [];
 
 let logChannelId = null;
@@ -294,7 +291,6 @@ function randomID(len = 10) {
   return crypto.randomBytes(len).toString("hex").slice(0, len);
 }
 
-// ── Regular key generation ─────────────────────────────────────────────
 function generateKey(productKey) {
   const prefix = PRODUCT_PREFIXES[productKey] || "XX";
   return (
@@ -306,7 +302,6 @@ function generateKey(productKey) {
   );
 }
 
-// ── Trial key generation ──────────────────────────────────────────────
 function generateTrialKey(productKey) {
   const prefix = FREE_PREFIXES[productKey] || "XXFREE";
   return (
@@ -318,7 +313,6 @@ function generateTrialKey(productKey) {
   );
 }
 
-// ── Centralised key creation ──────────────────────────────────────────
 function createKey(productKey, durationMs, userId, isTrial = false) {
   const key = isTrial ? generateTrialKey(productKey) : generateKey(productKey);
   const entry = {
@@ -342,7 +336,6 @@ function createKey(productKey, durationMs, userId, isTrial = false) {
   return key;
 }
 
-// ── Apply discount code ────────────────────────────────────────────────
 function applyDiscount(price, code) {
   refreshKeys();
   const discount = discountCodes.codes[code];
@@ -371,7 +364,6 @@ function applyDiscount(price, code) {
   };
 }
 
-// ── Track key usage ────────────────────────────────────────────────────
 function trackKeyUsage(key, hwid) {
   refreshKeys();
   const paidKey = keys.find(k => k.key === key);
@@ -604,11 +596,14 @@ function pricingDetailEmbed() {
 • 1 Month: ${formatPriceIDRUSD(PRICES.multifarm["30d"])}
       `, inline: true },
       { name: "Combat (Silent Aim)", value: `
+• 1 Day: ${formatPriceIDRUSD(PRICES.combat["1d"])}
+• 3 Days: ${formatPriceIDRUSD(PRICES.combat["3d"])}
 • 7 Days: ${formatPriceIDRUSD(PRICES.combat["7d"])}
 • 1 Month: ${formatPriceIDRUSD(PRICES.combat["30d"])}
 • Lifetime: ${formatPriceIDRUSD(PRICES.combat["perm"])}
       `, inline: true },
       { name: "Auto Farm", value: `
+• 3 Days: ${formatPriceIDRUSD(PRICES.autofarm["3d"])}
 • 7 Days: ${formatPriceIDRUSD(PRICES.autofarm["7d"])}
 • 1 Month: ${formatPriceIDRUSD(PRICES.autofarm["30d"])}
 • Lifetime: ${formatPriceIDRUSD(PRICES.autofarm["perm"])}
@@ -625,7 +620,7 @@ function pricingDetailEmbed() {
 }
 
 /* =====================================================
-   COMMANDS
+   COMMANDS - setuphwid REMOVED!
 ===================================================== */
 
 const commands = [
@@ -635,7 +630,6 @@ const commands = [
   new SlashCommandBuilder().setName("setupreviews").setDescription("Set current channel as review channel"),
   new SlashCommandBuilder().setName("setuptranscript").setDescription("Set current channel as transcript destination"),
   new SlashCommandBuilder().setName("setupgenlog").setDescription("Set current channel as genkey log channel"),
-  new SlashCommandBuilder().setName("setuphwid").setDescription("Send HWID management panel"),
   new SlashCommandBuilder().setName("dashboard").setDescription("View live stats"),
   new SlashCommandBuilder().setName("claim").setDescription("Claim this ticket"),
   new SlashCommandBuilder().setName("close").setDescription("Close current ticket (generates transcript)"),
@@ -820,12 +814,8 @@ client.once("ready", async () => {
     const beforeCount = keys.length;
 
     keys = keys.filter(k => {
-      if (k.expires !== 0 && k.duration > 0 && now > k.expires) {
-        console.log(`[CLEANUP] Removing expired key ${k.key}`);
-        return false;
-      }
       if (k.expires === 0 && k.duration > 0 && now - (k.created || 0) > ttl) {
-        console.log(`[CLEANUP] Removing unbound key ${k.key} – older than 7 days`);
+        console.log(`[CLEANUP] Removing very old unbound key ${k.key} – older than ${CONFIG.UNBOUND_KEY_TTL_DAYS} days`);
         return false;
       }
       return true;
@@ -833,7 +823,7 @@ client.once("ready", async () => {
 
     if (keys.length < beforeCount) {
       saveAll();
-      console.log(`[CLEANUP] Removed ${beforeCount - keys.length} keys (expired/unbound)`);
+      console.log(`[CLEANUP] Removed ${beforeCount - keys.length} very old keys`);
     }
   }, 24 * 60 * 60 * 1000);
 
@@ -1051,29 +1041,6 @@ async function handleSlash(interaction) {
     genlogChannelId = channel.id;
     saveAll();
     return safeReply(interaction, { content: "✅ Genkey log channel set." });
-  }
-
-  if (commandName === "setuphwid") {
-    if (!isAdmin(member)) return safeReply(interaction, { content: "No permission." });
-    
-    const embed = new EmbedBuilder()
-      .setColor(COLOR_MAIN)
-      .setTitle("🔐 HWID Management Panel")
-      .setDescription("Reset your HWID to use your key on a new device.\n\n**Both paid and trial keys can be reset using this panel.**")
-      .addFields(
-        { name: "ℹ️ How it works", value: "1. Click the **Reset HWID** button below\n2. Enter your key\n3. If the key is valid, your HWID will be reset" },
-        { name: "📋 Key Types", value: "• ✅ **Paid Keys**: Can be reset\n• ✅ **Trial Keys**: Can be reset" },
-        { name: "⚠️ Note", value: "You can only reset keys that belong to you." }
-      )
-      .setFooter({ text: "Both paid and trial keys supported" })
-      .setTimestamp();
-
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId("hwid_reset_all").setLabel("🔄 Reset HWID").setStyle(ButtonStyle.Primary)
-    );
-
-    await channel.send({ embeds: [embed], components: [row] });
-    return safeReply(interaction, { content: "✅ HWID management panel sent." });
   }
 
   if (commandName === "dashboard") {
@@ -1676,25 +1643,6 @@ async function handleSlash(interaction) {
 async function handleButton(interaction) {
   const { customId, guild, user, member, channel } = interaction;
 
-  if (customId === "hwid_reset_all") {
-    return interaction.showModal(
-      new ModalBuilder()
-        .setCustomId("modal_hwid_reset_all")
-        .setTitle("Reset HWID")
-        .addComponents(
-          new ActionRowBuilder().addComponents(
-            new TextInputBuilder()
-              .setCustomId("hwid_key_input")
-              .setLabel("Enter your key")
-              .setStyle(TextInputStyle.Short)
-              .setRequired(true)
-              .setMaxLength(50)
-              .setPlaceholder("e.g., KA-XXXX-XXXX-XXXX-XXXX")
-          )
-        )
-    );
-  }
-
   if (customId.startsWith("apply_discount:")) {
     const ticketId = customId.split(":")[1];
     return interaction.showModal(
@@ -1918,7 +1866,7 @@ async function handleButton(interaction) {
         const key = createKey(productKey, durationMs, data.userId);
         const loaderUrl = SCRIPT_LOADERS[productKey];
         const scriptReady = `loadstring(game:HttpGet("${loaderUrl}"))()`;
-        const expireText = seconds ? `Starts when first used` : `Lifetime`;
+        const expireText = seconds ? `Starts when first used` : "Lifetime";
 
         approveEmbed = new EmbedBuilder()
           .setColor(COLOR_GREEN)
@@ -2066,44 +2014,13 @@ async function handleModal(interaction) {
     });
   }
 
-  if (customId === "modal_hwid_reset_all") {
-    const key = interaction.fields.getTextInputValue("hwid_key_input").trim();
-    
-    const paidData = keys.find(k => k.key === key);
-    if (paidData) {
-      if (paidData.userId !== user.id) {
-        return interaction.reply({ content: "❌ This key does not belong to you.", flags: 64 });
-      }
-      paidData.hwid = null;
-      saveAll();
-      return interaction.reply({ 
-        content: "✅ HWID reset successfully! Your paid key can now be bound to a new device.", 
-        flags: 64 
-      });
-    }
-
-    const trialData = global.trialKeys.find(k => k.key === key);
-    if (trialData) {
-      if (trialData.userId !== user.id) {
-        return interaction.reply({ content: "❌ This key does not belong to you.", flags: 64 });
-      }
-      trialData.hwid = null;
-      return interaction.reply({ 
-        content: "✅ HWID reset successfully! Your trial key can now be bound to a new device.", 
-        flags: 64 
-      });
-    }
-
-    return interaction.reply({ content: "❌ Key not found.", flags: 64 });
-  }
-
   if (customId === "modal_trial_loadstring") {
     const key = interaction.fields.getTextInputValue("key_input").trim();
     const data = keys.find(k => k.key === key) || global.trialKeys.find(k => k.key === key);
     if (!data) return interaction.reply({ content: "❌ Key not found.", flags: 64 });
     if (data.userId !== user.id) return interaction.reply({ content: "❌ This key does not belong to you.", flags: 64 });
 
-    const loaderUrl = SCRIPT_LOADERS[data.product] || "https://vss.pandauth.com/virtual/file/8fbdbff19f624340";
+    const loaderUrl = SCRIPT_LOADERS[data.product] || "https://vss.pandauth.com/virtual/file/027fc82a484946ef";
     const scriptLoadOnly = `loadstring(game:HttpGet("${loaderUrl}"))()`;
     return interaction.reply({ content: `Your loadstring:\n\`\`\`lua\n${scriptLoadOnly}\n\`\`\``, flags: 64 });
   }
