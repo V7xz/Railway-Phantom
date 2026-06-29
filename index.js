@@ -100,7 +100,7 @@ const COLOR_GREEN = COLORS.green;
 const COLOR_YELLOW = COLORS.yellow;
 const COLOR_GRAY = COLORS.gray;
 
-// ── Pricing data (IDR) - Includes hours for /genkey, but NOT shown in pricing embed ──
+// ── Pricing data (IDR) - Hours included for /genkey & /extendkey ────────
 const PRICES = {
   killaura: {
     "1h": 5000,
@@ -2329,12 +2329,16 @@ function buildDurationMenu(ticketId, productKey) {
     return menu;
   }
 
+  // ⚠️ TICKET SHOP: ONLY days and lifetime – NO hours!
+  const allowedDurations = ["1d", "3d", "7d", "30d", "perm"];
   for (const [dur, price] of Object.entries(PRICES[productKey] || {})) {
-    menu.addOptions({
-      label: durationLabel(dur),
-      value: dur,
-      description: formatPriceIDRUSD(price)
-    });
+    if (allowedDurations.includes(dur)) {
+      menu.addOptions({
+        label: durationLabel(dur),
+        value: dur,
+        description: formatPriceIDRUSD(price)
+      });
+    }
   }
 
   return menu;
