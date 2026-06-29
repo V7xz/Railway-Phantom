@@ -100,19 +100,31 @@ const COLOR_GREEN = COLORS.green;
 const COLOR_YELLOW = COLORS.yellow;
 const COLOR_GRAY = COLORS.gray;
 
-// ── Pricing data (IDR) ──────────────────────────────────────────────────
+// ── Pricing data (IDR) - Includes hours for /genkey, but NOT shown in pricing embed ──
 const PRICES = {
   killaura: {
+    "1h": 5000,
+    "3h": 12000,
+    "6h": 20000,
+    "12h": 35000,
     "7d": 60000,
     "30d": 120000
   },
   multifarm: {
+    "1h": 7000,
+    "3h": 18000,
+    "6h": 30000,
+    "12h": 50000,
     "1d": 30000,
     "3d": 50000,
     "7d": 100000,
     "30d": 200000
   },
   combat: {
+    "1h": 3000,
+    "3h": 8000,
+    "6h": 15000,
+    "12h": 25000,
     "1d": 15000,
     "3d": 30000,
     "7d": 50000,
@@ -120,6 +132,10 @@ const PRICES = {
     "perm": 110000
   },
   autofarm: {
+    "1h": 2000,
+    "3h": 5000,
+    "6h": 10000,
+    "12h": 18000,
     "1d": 10000,
     "3d": 20000,
     "7d": 40000,
@@ -127,6 +143,10 @@ const PRICES = {
     "perm": 80000
   },
   fps: {
+    "1h": 2000,
+    "3h": 5000,
+    "6h": 10000,
+    "12h": 18000,
     "perm": 25000
   },
   southbronx: {
@@ -633,13 +653,13 @@ function pricingDetailEmbed() {
     .setTitle("💰 Product Pricing")
     .setDescription("All prices are listed in **IDR** with approximate **USD** equivalents.\n");
 
-  // Kill Aura
+  // Kill Aura - ONLY days, NO hours shown
   let killauraText = "";
   if (PRICES.killaura["7d"]) killauraText += `• 7 Days: ${formatPriceIDRUSD(PRICES.killaura["7d"])}\n`;
   if (PRICES.killaura["30d"]) killauraText += `• 1 Month: ${formatPriceIDRUSD(PRICES.killaura["30d"])}\n`;
   embed.addFields({ name: "**Kill Aura (ON PROGRESS)**", value: killauraText || "Coming soon", inline: false });
 
-  // Multi Farm
+  // Multi Farm - ONLY days, NO hours shown
   let multifarmText = "";
   if (PRICES.multifarm["1d"]) multifarmText += `• 1 Day: ${formatPriceIDRUSD(PRICES.multifarm["1d"])}\n`;
   if (PRICES.multifarm["3d"]) multifarmText += `• 3 Days: ${formatPriceIDRUSD(PRICES.multifarm["3d"])}\n`;
@@ -647,7 +667,7 @@ function pricingDetailEmbed() {
   if (PRICES.multifarm["30d"]) multifarmText += `• 1 Month: ${formatPriceIDRUSD(PRICES.multifarm["30d"])}\n`;
   embed.addFields({ name: "**Multi Farm**", value: multifarmText, inline: false });
 
-  // Combat
+  // Combat - ONLY days and lifetime, NO hours shown
   let combatText = "";
   if (PRICES.combat["1d"]) combatText += `• 1 Day: ${formatPriceIDRUSD(PRICES.combat["1d"])}\n`;
   if (PRICES.combat["3d"]) combatText += `• 3 Days: ${formatPriceIDRUSD(PRICES.combat["3d"])}\n`;
@@ -656,7 +676,7 @@ function pricingDetailEmbed() {
   if (PRICES.combat["perm"]) combatText += `• Lifetime: ${formatPriceIDRUSD(PRICES.combat["perm"])}\n`;
   embed.addFields({ name: "**Combat (Silent Aim)**", value: combatText, inline: false });
 
-  // Auto Farm
+  // Auto Farm - ONLY days and lifetime, NO hours shown
   let autofarmText = "";
   if (PRICES.autofarm["1d"]) autofarmText += `• 1 Day: ${formatPriceIDRUSD(PRICES.autofarm["1d"])}\n`;
   if (PRICES.autofarm["3d"]) autofarmText += `• 3 Days: ${formatPriceIDRUSD(PRICES.autofarm["3d"])}\n`;
@@ -665,7 +685,7 @@ function pricingDetailEmbed() {
   if (PRICES.autofarm["perm"]) autofarmText += `• Lifetime: ${formatPriceIDRUSD(PRICES.autofarm["perm"])}\n`;
   embed.addFields({ name: "**Auto Farm**", value: autofarmText, inline: false });
 
-  // FPS
+  // FPS - ONLY lifetime, NO hours shown
   let fpsText = "";
   if (PRICES.fps["perm"]) fpsText += `• Lifetime: ${formatPriceIDRUSD(PRICES.fps["perm"])}\n`;
   embed.addFields({ name: "**FPS (Lifetime Only)**", value: fpsText, inline: false });
@@ -725,6 +745,10 @@ const commands = [
       ))
     .addStringOption(o => o.setName("duration").setDescription("Key duration").setRequired(true)
       .addChoices(
+        { name:"1 Hour", value:"1h" },
+        { name:"3 Hours", value:"3h" },
+        { name:"6 Hours", value:"6h" },
+        { name:"12 Hours", value:"12h" },
         { name:"1 Day", value:"1d" },
         { name:"3 Days", value:"3d" },
         { name:"7 Days", value:"7d" },
@@ -736,6 +760,10 @@ const commands = [
     .addStringOption(o => o.setName("key").setDescription("Key to extend").setRequired(true))
     .addStringOption(o => o.setName("duration").setDescription("Duration to add").setRequired(true)
       .addChoices(
+        { name:"1 Hour", value:"1h" },
+        { name:"3 Hours", value:"3h" },
+        { name:"6 Hours", value:"6h" },
+        { name:"12 Hours", value:"12h" },
         { name:"1 Day", value:"1d" },
         { name:"3 Days", value:"3d" },
         { name:"7 Days", value:"7d" },
