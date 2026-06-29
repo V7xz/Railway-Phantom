@@ -41,11 +41,11 @@ const LTC_TEXT = process.env.LTC_TEXT || "Unavailable";
 
 // ── Per‑product loader URLs ─────────────────────────────────────────────
 const SCRIPT_LOADERS = {
-  killaura: process.env.LOADER_KILLAURA || "https://vss.pandauth.com/virtual/file/027fc82a484946ef",
-  combat:   process.env.LOADER_COMBAT   || "https://vss.pandauth.com/virtual/file/027fc82a484946ef",
-  autofarm: process.env.LOADER_AUTOFARM || "https://vss.pandauth.com/virtual/file/027fc82a484946ef",
-  fps:      process.env.LOADER_FPS      || "https://vss.pandauth.com/virtual/file/027fc82a484946ef",
-  multifarm: process.env.LOADER_MULTIFARM || "https://vss.pandauth.com/virtual/file/027fc82a484946ef"
+  killaura: process.env.LOADER_KILLAURA || "https://vss.pandauth.com/kv/aac058ad34f97422",
+  combat:   process.env.LOADER_COMBAT   || "https://vss.pandauth.com/kv/aac058ad34f97422",
+  autofarm: process.env.LOADER_AUTOFARM || "https://vss.pandauth.com/kv/aac058ad34f97422",
+  fps:      process.env.LOADER_FPS      || "https://vss.pandauth.com/kv/aac058ad34f97422",
+  multifarm: process.env.LOADER_MULTIFARM || "https://vss.pandauth.com/kv/aac058ad34f97422"
 };
 
 // ── Product prefixes for paid keys ──────────────────────────────────────
@@ -82,7 +82,7 @@ const CONFIG = {
   COOLDOWN_MS: 3000,
   MAX_OPEN_TICKETS_PER_USER: 10,
   TRANSCRIPT_CHANNEL_NAME: "transcript",
-  KEY_EXPIRY_CHECK_INTERVAL: 3600000
+  UNBOUND_KEY_TTL_DAYS: 7
 };
 
 const COLORS = {
@@ -91,9 +91,7 @@ const COLORS = {
   green: 0x57f287,
   red: 0xed4245,
   yellow: 0xfee75c,
-  gray: 0x2b2d31,
-  cyan: 0x00ffff,
-  orange: 0xffa500
+  gray: 0x2b2d31
 };
 
 const COLOR_MAIN = COLORS.main;
@@ -101,44 +99,72 @@ const COLOR_RED = COLORS.red;
 const COLOR_GREEN = COLORS.green;
 const COLOR_YELLOW = COLORS.yellow;
 const COLOR_GRAY = COLORS.gray;
-const COLOR_CYAN = COLORS.cyan;
-const COLOR_ORANGE = COLORS.orange;
 
 // ── Pricing data (IDR) ──────────────────────────────────────────────────
 const PRICES = {
-  killaura: { "7d": 60000, "30d": 120000 },
-  combat:   { "1d": 15000, "3d": 30000, "7d": 50000, "30d": 80000, "perm": 120000 },
-  autofarm: { "3d": 20000, "7d": 40000, "30d": 80000, "perm": 100000 },
-  fps:      { "perm": 35000 },
-  external: { "perm": 110000 },
-  multifarm: { "1d": 35000, "3d": 45000, "7d": 100000, "30d": 250000 }
+  killaura: {
+    "7d": 60000,
+    "30d": 120000
+  },
+  multifarm: {
+    "1d": 30000,
+    "3d": 50000,
+    "7d": 100000,
+    "30d": 200000
+  },
+  combat: {
+    "1d": 15000,
+    "3d": 30000,
+    "7d": 50000,
+    "30d": 80000,
+    "perm": 110000
+  },
+  autofarm: {
+    "1d": 10000,
+    "3d": 20000,
+    "7d": 40000,
+    "30d": 60000,
+    "perm": 80000
+  },
+  fps: {
+    "perm": 25000
+  },
+  southbronx: {
+    "100k": 9000,
+    "200k": 14000,
+    "300k": 21000,
+    "400k": 29000,
+    "500k": 36000,
+    "600k": 43000,
+    "700k": 50000,
+    "800k": 57000,
+    "900k": 64000,
+    "1m": 71000
+  }
 };
 
 // ── USD approximations ──────────────────────────────────────────────────
-const USD_APPROX = {
-  10000: "0.63", 12000: "0.75", 15000: "1.00", 20000: "1.20", 25000: "1.56",
-  30000: "2.00", 35000: "2.19", 40000: "2.50", 45000: "3.00", 50000: "3.10",
-  60000: "3.75", 80000: "5.00", 100000: "6.25", 110000: "6.88", 120000: "7.50",
-  130000: "8.13", 250000: "14.00"
-};
-
 function getUSDApprox(idr) {
-  const usd = USD_APPROX[idr];
-  return usd ? `~$${usd} USD` : `~$${(idr / 16000).toFixed(2)} USD`;
+  return `~$${(idr / 16000).toFixed(2)} USD`;
 }
 
 function formatPriceIDRUSD(idr) {
-  return `IDR ${idr.toLocaleString("id-ID")} | ${getUSDApprox(idr)}`;
+  return `IDR ${idr.toLocaleString("id-ID")} / ${getUSDApprox(idr)}`;
 }
 
 function getProductKey(productName) {
   if (productName === "Kill Aura") return "killaura";
+  if (productName === "Multi Farm") return "multifarm";
   if (productName === "Combat (Silent Aim)") return "combat";
   if (productName === "Auto Farm") return "autofarm";
   if (productName === "FPS") return "fps";
+  if (productName === "South Bronx Cash") return "southbronx";
   if (productName === "Roblox External") return "external";
-  if (productName === "MultiFarm") return "multifarm";
   return null;
+}
+
+function requiresKey(productKey) {
+  return ["killaura", "combat", "autofarm", "fps", "multifarm"].includes(productKey);
 }
 
 /* =====================================================
@@ -213,11 +239,14 @@ let genlogChannelId = (() => {
     } catch { return null; }
 })();
 
+// Discount codes storage
 let discountCodes = readJSON(FILES.discounts);
 if (!discountCodes.codes) discountCodes.codes = {};
 
+// Key usage stats
 let keyUsage = readJSON(FILES.keyusage);
 
+// ── IN‑MEMORY TRIAL KEYS ────────────────────────────────────────────────
 global.trialKeys = [];
 
 let logChannelId = null;
@@ -280,6 +309,16 @@ function durationLabel(val) {
   if (val === "7d")  return "7 Days";
   if (val === "30d") return "1 Month";
   if (val === "perm") return "Lifetime";
+  if (val === "100k") return "100k";
+  if (val === "200k") return "200k";
+  if (val === "300k") return "300k";
+  if (val === "400k") return "400k";
+  if (val === "500k") return "500k";
+  if (val === "600k") return "600k";
+  if (val === "700k") return "700k";
+  if (val === "800k") return "800k";
+  if (val === "900k") return "900k";
+  if (val === "1m") return "1.00m";
   return "Unknown";
 }
 
@@ -295,6 +334,7 @@ function randomID(len = 10) {
   return crypto.randomBytes(len).toString("hex").slice(0, len);
 }
 
+// ── Regular key generation ─────────────────────────────────────────────
 function generateKey(productKey) {
   const prefix = PRODUCT_PREFIXES[productKey] || "XX";
   return (
@@ -306,6 +346,7 @@ function generateKey(productKey) {
   );
 }
 
+// ── Trial key generation ──────────────────────────────────────────────
 function generateTrialKey(productKey) {
   const prefix = FREE_PREFIXES[productKey] || "XXFREE";
   return (
@@ -317,21 +358,19 @@ function generateTrialKey(productKey) {
   );
 }
 
+// ── Centralised key creation ──────────────────────────────────────────
 function createKey(productKey, durationMs, userId, isTrial = false) {
   const key = isTrial ? generateTrialKey(productKey) : generateKey(productKey);
-  const expiresAt = durationMs > 0 ? Date.now() + durationMs : 0;
   const entry = {
     key,
     product: productKey,
     duration: durationMs,
-    expires: expiresAt,
+    expires: 0,
     hwid: null,
     userId: userId,
     created: Date.now(),
     trial: isTrial || false,
-    usageCount: 0,
-    isActive: true,
-    expired: false
+    usageCount: 0
   };
 
   if (isTrial) {
@@ -343,6 +382,7 @@ function createKey(productKey, durationMs, userId, isTrial = false) {
   return key;
 }
 
+// ── Apply discount code ────────────────────────────────────────────────
 function applyDiscount(price, code) {
   refreshKeys();
   const discount = discountCodes.codes[code];
@@ -371,6 +411,7 @@ function applyDiscount(price, code) {
   };
 }
 
+// ── Track key usage ────────────────────────────────────────────────────
 function trackKeyUsage(key, hwid) {
   refreshKeys();
   const paidKey = keys.find(k => k.key === key);
@@ -587,43 +628,63 @@ function dashboardEmbed(guild) {
 }
 
 function pricingDetailEmbed() {
-  return new EmbedBuilder()
+  const embed = new EmbedBuilder()
     .setColor(COLOR_MAIN)
     .setTitle("💰 Product Pricing")
-    .setDescription("All prices are listed in **IDR** with approximate **USD** equivalents.\n")
-    .addFields(
-      { name: "Kill Aura (ON PROGRESS)", value: `
-• 7 Days: ${formatPriceIDRUSD(PRICES.killaura["7d"])}
-• 1 Month: ${formatPriceIDRUSD(PRICES.killaura["30d"])}
-      `, inline: true },
-      { name: "MultiFarm", value: `
-• 1 Day: ${formatPriceIDRUSD(PRICES.multifarm["1d"])}
-• 3 Days: ${formatPriceIDRUSD(PRICES.multifarm["3d"])}
-• 7 Days: ${formatPriceIDRUSD(PRICES.multifarm["7d"])}
-• 1 Month: ${formatPriceIDRUSD(PRICES.multifarm["30d"])}
-      `, inline: true },
-      { name: "Combat (Silent Aim)", value: `
-• 1 Day: ${formatPriceIDRUSD(PRICES.combat["1d"])}
-• 3 Days: ${formatPriceIDRUSD(PRICES.combat["3d"])}
-• 7 Days: ${formatPriceIDRUSD(PRICES.combat["7d"])}
-• 1 Month: ${formatPriceIDRUSD(PRICES.combat["30d"])}
-• Lifetime: ${formatPriceIDRUSD(PRICES.combat["perm"])}
-      `, inline: true },
-      { name: "Auto Farm", value: `
-• 3 Days: ${formatPriceIDRUSD(PRICES.autofarm["3d"])}
-• 7 Days: ${formatPriceIDRUSD(PRICES.autofarm["7d"])}
-• 1 Month: ${formatPriceIDRUSD(PRICES.autofarm["30d"])}
-• Lifetime: ${formatPriceIDRUSD(PRICES.autofarm["perm"])}
-      `, inline: true },
-      { name: "FPS (Lifetime Only)", value: `
-• Lifetime: ${formatPriceIDRUSD(PRICES.fps["perm"])}
-      `, inline: true },
-      { name: "External — Roblox External", value: `
-• Lifetime: ${formatPriceIDRUSD(PRICES.external["perm"])}
-      `, inline: false }
-    )
-    .setFooter({ text: "Prices are subject to change. Confirm final amount before paying." })
+    .setDescription("All prices are listed in **IDR** with approximate **USD** equivalents.\n");
+
+  // Kill Aura
+  let killauraText = "";
+  if (PRICES.killaura["7d"]) killauraText += `• 7 Days: ${formatPriceIDRUSD(PRICES.killaura["7d"])}\n`;
+  if (PRICES.killaura["30d"]) killauraText += `• 1 Month: ${formatPriceIDRUSD(PRICES.killaura["30d"])}\n`;
+  embed.addFields({ name: "**Kill Aura (ON PROGRESS)**", value: killauraText || "Coming soon", inline: false });
+
+  // Multi Farm
+  let multifarmText = "";
+  if (PRICES.multifarm["1d"]) multifarmText += `• 1 Day: ${formatPriceIDRUSD(PRICES.multifarm["1d"])}\n`;
+  if (PRICES.multifarm["3d"]) multifarmText += `• 3 Days: ${formatPriceIDRUSD(PRICES.multifarm["3d"])}\n`;
+  if (PRICES.multifarm["7d"]) multifarmText += `• 7 Days: ${formatPriceIDRUSD(PRICES.multifarm["7d"])}\n`;
+  if (PRICES.multifarm["30d"]) multifarmText += `• 1 Month: ${formatPriceIDRUSD(PRICES.multifarm["30d"])}\n`;
+  embed.addFields({ name: "**Multi Farm**", value: multifarmText, inline: false });
+
+  // Combat
+  let combatText = "";
+  if (PRICES.combat["1d"]) combatText += `• 1 Day: ${formatPriceIDRUSD(PRICES.combat["1d"])}\n`;
+  if (PRICES.combat["3d"]) combatText += `• 3 Days: ${formatPriceIDRUSD(PRICES.combat["3d"])}\n`;
+  if (PRICES.combat["7d"]) combatText += `• 7 Days: ${formatPriceIDRUSD(PRICES.combat["7d"])}\n`;
+  if (PRICES.combat["30d"]) combatText += `• 1 Month: ${formatPriceIDRUSD(PRICES.combat["30d"])}\n`;
+  if (PRICES.combat["perm"]) combatText += `• Lifetime: ${formatPriceIDRUSD(PRICES.combat["perm"])}\n`;
+  embed.addFields({ name: "**Combat (Silent Aim)**", value: combatText, inline: false });
+
+  // Auto Farm
+  let autofarmText = "";
+  if (PRICES.autofarm["1d"]) autofarmText += `• 1 Day: ${formatPriceIDRUSD(PRICES.autofarm["1d"])}\n`;
+  if (PRICES.autofarm["3d"]) autofarmText += `• 3 Days: ${formatPriceIDRUSD(PRICES.autofarm["3d"])}\n`;
+  if (PRICES.autofarm["7d"]) autofarmText += `• 7 Days: ${formatPriceIDRUSD(PRICES.autofarm["7d"])}\n`;
+  if (PRICES.autofarm["30d"]) autofarmText += `• 1 Month: ${formatPriceIDRUSD(PRICES.autofarm["30d"])}\n`;
+  if (PRICES.autofarm["perm"]) autofarmText += `• Lifetime: ${formatPriceIDRUSD(PRICES.autofarm["perm"])}\n`;
+  embed.addFields({ name: "**Auto Farm**", value: autofarmText, inline: false });
+
+  // FPS
+  let fpsText = "";
+  if (PRICES.fps["perm"]) fpsText += `• Lifetime: ${formatPriceIDRUSD(PRICES.fps["perm"])}\n`;
+  embed.addFields({ name: "**FPS (Lifetime Only)**", value: fpsText, inline: false });
+
+  // South Bronx Cash
+  let southbronxText = "";
+  const currencyKeys = ["100k", "200k", "300k", "400k", "500k", "600k", "700k", "800k", "900k", "1m"];
+  currencyKeys.forEach(k => {
+    if (PRICES.southbronx[k]) {
+      let label = k === "1m" ? "1.00m" : k;
+      southbronxText += `• ${label}: ${formatPriceIDRUSD(PRICES.southbronx[k])}\n`;
+    }
+  });
+  embed.addFields({ name: "**South Bronx Cash (VIA Transfer)**", value: southbronxText, inline: false });
+
+  embed.setFooter({ text: "Prices are subject to change. Confirm final amount before paying." })
     .setTimestamp();
+
+  return embed;
 }
 
 /* =====================================================
@@ -637,6 +698,7 @@ const commands = [
   new SlashCommandBuilder().setName("setupreviews").setDescription("Set current channel as review channel"),
   new SlashCommandBuilder().setName("setuptranscript").setDescription("Set current channel as transcript destination"),
   new SlashCommandBuilder().setName("setupgenlog").setDescription("Set current channel as genkey log channel"),
+  new SlashCommandBuilder().setName("setuphwid").setDescription("Send HWID management panel"),
   new SlashCommandBuilder().setName("dashboard").setDescription("View live stats"),
   new SlashCommandBuilder().setName("claim").setDescription("Claim this ticket"),
   new SlashCommandBuilder().setName("close").setDescription("Close current ticket (generates transcript)"),
@@ -656,17 +718,13 @@ const commands = [
     .addStringOption(o => o.setName("product").setDescription("Select script type").setRequired(true)
       .addChoices(
         { name:"Kill Aura", value:"killaura" },
+        { name:"Multi Farm", value:"multifarm" },
         { name:"Combat (Silent Aim)", value:"combat" },
         { name:"Auto Farm", value:"autofarm" },
-        { name:"FPS", value:"fps" },
-        { name:"MultiFarm", value:"multifarm" }
+        { name:"FPS", value:"fps" }
       ))
     .addStringOption(o => o.setName("duration").setDescription("Key duration").setRequired(true)
       .addChoices(
-        { name:"1 Hour", value:"1h" },
-        { name:"3 Hours", value:"3h" },
-        { name:"6 Hours", value:"6h" },
-        { name:"12 Hours", value:"12h" },
         { name:"1 Day", value:"1d" },
         { name:"3 Days", value:"3d" },
         { name:"7 Days", value:"7d" },
@@ -678,10 +736,6 @@ const commands = [
     .addStringOption(o => o.setName("key").setDescription("Key to extend").setRequired(true))
     .addStringOption(o => o.setName("duration").setDescription("Duration to add").setRequired(true)
       .addChoices(
-        { name:"1 Hour", value:"1h" },
-        { name:"3 Hours", value:"3h" },
-        { name:"6 Hours", value:"6h" },
-        { name:"12 Hours", value:"12h" },
         { name:"1 Day", value:"1d" },
         { name:"3 Days", value:"3d" },
         { name:"7 Days", value:"7d" },
@@ -692,14 +746,9 @@ const commands = [
   new SlashCommandBuilder().setName("resethwid").setDescription("Reset HWID (admin)").addStringOption(o => o.setName("key").setDescription("Key").setRequired(true)),
   new SlashCommandBuilder()
     .setName("keylist")
-    .setDescription("List all active keys (admin)")
+    .setDescription("List all keys (admin)")
     .addStringOption(o => o.setName("type").setDescription("Filter by key type").setRequired(false)
-      .addChoices(
-        { name:"Active Keys", value:"active" },
-        { name:"Paid Keys", value:"paid" },
-        { name:"Trial Keys", value:"trial" },
-        { name:"All Keys", value:"all" }
-      )),
+      .addChoices({ name:"Paid Keys", value:"paid" }, { name:"Trial Keys", value:"trial" })),
   new SlashCommandBuilder()
     .setName("checkmykey")
     .setDescription("Check any key")
@@ -709,10 +758,10 @@ const commands = [
     .addStringOption(o => o.setName("product").setDescription("Which script to give as trial").setRequired(true)
       .addChoices(
         { name:"Kill Aura", value:"killaura" },
+        { name:"Multi Farm", value:"multifarm" },
         { name:"Combat (Silent Aim)", value:"combat" },
         { name:"Auto Farm", value:"autofarm" },
-        { name:"FPS", value:"fps" },
-        { name:"MultiFarm", value:"multifarm" }
+        { name:"FPS", value:"fps" }
       ))
     .addStringOption(o => o.setName("duration").setDescription("Trial duration").setRequired(true)
       .addChoices(
@@ -735,6 +784,7 @@ const commands = [
         { name:"3 Days", value:"3d" },
         { name:"7 Days", value:"7d" }
       )),
+  // Discount commands
   new SlashCommandBuilder()
     .setName("addcode")
     .setDescription("Add a discount code (admin only)")
@@ -779,14 +829,6 @@ client.once("ready", async () => {
   console.log("GUILD_ID:", GUILD_ID);
 
   try {
-    console.log("🧹 Clearing old guild commands...");
-    await rest.put(
-      Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
-      { body: [] }
-    );
-    console.log("✅ Old commands cleared!");
-
-    console.log(`📝 Registering ${commands.length} commands...`);
     await rest.put(
       Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
       { body: commands }
@@ -826,76 +868,40 @@ client.once("ready", async () => {
     }
   }, 30 * 60 * 1000);
 
-  // ── KEY EXPIRY CHECK & CLEANUP ─────────────────────────────────────────
-  // Runs every hour to remove expired keys
   setInterval(() => {
     const now = Date.now();
-    let removedCount = 0;
-    let expiredCount = 0;
-    
-    // Check for expired keys and remove them
+    const ttl = CONFIG.UNBOUND_KEY_TTL_DAYS * 86400 * 1000;
     const beforeCount = keys.length;
-    
+
     keys = keys.filter(k => {
-      // Check if key is expired (has expiry date and current time > expiry)
-      if (k.expires > 0 && now > k.expires) {
-        console.log(`[EXPIRED] Removing expired key ${k.key} (expired on ${new Date(k.expires).toISOString()})`);
-        expiredCount++;
-        // Remove from keyUsage as well
-        if (keyUsage[k.key]) {
-          delete keyUsage[k.key];
-        }
+      if (k.expires !== 0 && k.duration > 0 && now > k.expires) {
+        console.log(`[CLEANUP] Removing expired key ${k.key}`);
+        return false;
+      }
+      if (k.expires === 0 && k.duration > 0 && now - (k.created || 0) > ttl) {
+        console.log(`[CLEANUP] Removing unbound key ${k.key} – older than 7 days`);
         return false;
       }
       return true;
     });
 
-    // Clean up trial keys too
-    const trialBefore = global.trialKeys.length;
-    global.trialKeys = global.trialKeys.filter(k => {
-      if (k.expires > 0 && now > k.expires) {
-        console.log(`[EXPIRED] Removing expired trial key ${k.key}`);
-        return false;
-      }
-      return true;
-    });
-
-    if (keys.length < beforeCount || global.trialKeys.length < trialBefore) {
-      saveAll();
-      console.log(`[CLEANUP] Removed ${beforeCount - keys.length} expired paid keys`);
-      console.log(`[CLEANUP] Removed ${trialBefore - global.trialKeys.length} expired trial keys`);
-    }
-  }, CONFIG.KEY_EXPIRY_CHECK_INTERVAL);
-
-  // ── Also run cleanup on startup ──────────────────────────────────────
-  setTimeout(() => {
-    const now = Date.now();
-    const beforeCount = keys.length;
-    
-    keys = keys.filter(k => {
-      if (k.expires > 0 && now > k.expires) {
-        console.log(`[STARTUP CLEANUP] Removing expired key ${k.key}`);
-        if (keyUsage[k.key]) {
-          delete keyUsage[k.key];
-        }
-        return false;
-      }
-      return true;
-    });
-    
-    global.trialKeys = global.trialKeys.filter(k => {
-      if (k.expires > 0 && now > k.expires) {
-        console.log(`[STARTUP CLEANUP] Removing expired trial key ${k.key}`);
-        return false;
-      }
-      return true;
-    });
-    
     if (keys.length < beforeCount) {
       saveAll();
-      console.log(`[STARTUP CLEANUP] Removed ${beforeCount - keys.length} expired keys`);
+      console.log(`[CLEANUP] Removed ${beforeCount - keys.length} keys (expired/unbound)`);
     }
-  }, 10000);
+  }, 24 * 60 * 60 * 1000);
+
+  setInterval(() => {
+    const now = Date.now();
+    const before = global.trialKeys.length;
+    global.trialKeys = global.trialKeys.filter(k => {
+      if (k.expires !== 0 && now > k.expires) return false;
+      return true;
+    });
+    if (global.trialKeys.length < before) {
+      console.log(`[TRIAL CLEANUP] Removed ${before - global.trialKeys.length} expired trial keys`);
+    }
+  }, 60 * 60 * 1000);
 });
 
 /* =====================================================
@@ -931,10 +937,12 @@ client.on("interactionCreate", async (interaction) => {
 async function handleSlash(interaction) {
   const { commandName, member, channel, guild, options, user } = interaction;
 
+  // ── PING ──────────────────────────────────────────────────────────────
   if (commandName === "ping") {
     return interaction.reply({ content: "🏓 Pong! Bot is online!", flags: 64 });
   }
 
+  // ── DISCOUNT CODE COMMANDS ─────────────────────────────────────────────
   if (commandName === "addcode") {
     if (!isAdmin(member)) return interaction.reply({ content: "You don't have permission!", flags: 64 });
     
@@ -1011,6 +1019,7 @@ async function handleSlash(interaction) {
     return interaction.reply({ embeds: [embed], flags: 64 });
   }
 
+  // ── KEY STATS ──────────────────────────────────────────────────────────
   if (commandName === "keystats") {
     const key = options.getString("key");
     refreshKeys();
@@ -1044,6 +1053,7 @@ async function handleSlash(interaction) {
     return interaction.reply({ embeds: [embed], flags: 64 });
   }
 
+  // ── SETUP COMMANDS ──────────────────────────────────────────────────
   if (commandName === "setup") {
     if (!isAdmin(member)) return safeReply(interaction, { content: "No permission." });
 
@@ -1099,6 +1109,29 @@ async function handleSlash(interaction) {
     genlogChannelId = channel.id;
     saveAll();
     return safeReply(interaction, { content: "✅ Genkey log channel set." });
+  }
+
+  if (commandName === "setuphwid") {
+    if (!isAdmin(member)) return safeReply(interaction, { content: "No permission." });
+    
+    const embed = new EmbedBuilder()
+      .setColor(COLOR_MAIN)
+      .setTitle("🔐 HWID Management Panel")
+      .setDescription("Reset your HWID to use your key on a new device.\n\n**Both paid and trial keys can be reset using this panel.**")
+      .addFields(
+        { name: "ℹ️ How it works", value: "1. Click the **Reset HWID** button below\n2. Enter your key\n3. If the key is valid, your HWID will be reset" },
+        { name: "📋 Key Types", value: "• ✅ **Paid Keys**: Can be reset\n• ✅ **Trial Keys**: Can be reset" },
+        { name: "⚠️ Note", value: "You can only reset keys that belong to you." }
+      )
+      .setFooter({ text: "Both paid and trial keys supported" })
+      .setTimestamp();
+
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId("hwid_reset_all").setLabel("🔄 Reset HWID").setStyle(ButtonStyle.Primary)
+    );
+
+    await channel.send({ embeds: [embed], components: [row] });
+    return safeReply(interaction, { content: "✅ HWID management panel sent." });
   }
 
   if (commandName === "dashboard") {
@@ -1183,6 +1216,7 @@ async function handleSlash(interaction) {
     saveAll();
     trackMessage(channel.id, "SYSTEM", `[APPROVED] Payment approved by ${interaction.user.tag}`);
 
+    // ── Give buyer role ──────────────────────────────────────────────────
     try {
       const targetMember = await guild.members.fetch(data.userId).catch(() => null);
       if (targetMember) {
@@ -1196,13 +1230,13 @@ async function handleSlash(interaction) {
       console.error("[ROLE] Failed to add buyer role:", err.message);
     }
 
-    let approveEmbed;
     const productKey = getProductKey(data.product);
-    if (["killaura", "combat", "autofarm", "fps", "multifarm"].includes(productKey)) {
+    let approveEmbed;
+    if (requiresKey(productKey)) {
       const seconds = parseDuration(data.duration);
       const durationMs = seconds ? seconds * 1000 : 0;
       const key = createKey(productKey, durationMs, data.userId);
-      const loaderUrl = SCRIPT_LOADERS[productKey];
+      const loaderUrl = SCRIPT_LOADERS[productKey] || "https://example.com/script";
       const scriptReady = `loadstring(game:HttpGet("${loaderUrl}"))()`;
       const expireText = seconds ? `Starts when first used` : "Lifetime";
 
@@ -1219,10 +1253,17 @@ async function handleSlash(interaction) {
         .setFooter({ text: "Use /checkmykey to view your key info anytime" })
         .setTimestamp();
     } else {
+      // For South Bronx Cash or other non-key products
       approveEmbed = new EmbedBuilder()
         .setColor(COLOR_GREEN)
         .setTitle("✅ Payment Approved")
         .setDescription(`Your **${data.product}** order has been verified!`)
+        .addFields(
+          { name: "Product", value: data.product, inline: true },
+          { name: "Variant", value: data.variant || "N/A", inline: true },
+          { name: "Price", value: moneyIDR(data.price), inline: true }
+        )
+        .setFooter({ text: "Thank you for your purchase!" })
         .setTimestamp();
     }
 
@@ -1265,6 +1306,7 @@ async function handleSlash(interaction) {
     return safeReply(interaction, { content: "❌ Rejected." });
   }
 
+  // ── Key Bot Commands ───────────────────────────────────────────────────
   if (commandName === "genkey") {
     if (!canGenkey(member, interaction))
       return interaction.reply({ content: "You don't have permission!", flags: 64 });
@@ -1277,19 +1319,19 @@ async function handleSlash(interaction) {
     const durationMs  = seconds ? seconds * 1000 : 0;
 
     const key = createKey(productKey, durationMs, interaction.user.id);
-    const loaderUrl = SCRIPT_LOADERS[productKey];
+    const loaderUrl = SCRIPT_LOADERS[productKey] || "https://example.com/script";
     const scriptReady = `loadstring(game:HttpGet("${loaderUrl}"))()`;
-    const expireText = seconds ? `Starts when first used` : "Lifetime";
+    const expireText = seconds ? `Starts when first used` : `Lifetime`;
 
     if (genlogChannelId) {
       const logCh = client.channels.cache.get(genlogChannelId);
       if (logCh) {
-        const productNames = { killaura: "Kill Aura", combat: "Combat (Silent Aim)", autofarm: "Auto Farm", fps: "FPS", multifarm: "MultiFarm" };
+        const productNames = { killaura: "Kill Aura", multifarm: "Multi Farm", combat: "Combat (Silent Aim)", autofarm: "Auto Farm", fps: "FPS" };
         const logEmbed = new EmbedBuilder()
           .setColor(0x00ff99)
           .setTitle("🔑 Key Generated")
           .addFields(
-            { name: "Product", value: productNames[productKey], inline: true },
+            { name: "Product", value: productNames[productKey] || productKey, inline: true },
             { name: "Duration", value: durationLabel(durasiStr), inline: true },
             { name: "Generated by", value: `<@${interaction.user.id}> (${interaction.user.tag})`, inline: true }
           )
@@ -1300,17 +1342,17 @@ async function handleSlash(interaction) {
 
     const productNames = {
       killaura: "Kill Aura",
+      multifarm: "Multi Farm",
       combat: "Combat (Silent Aim)",
       autofarm: "Auto Farm",
-      fps: "FPS",
-      multifarm: "MultiFarm"
+      fps: "FPS"
     };
 
     const embed = new EmbedBuilder()
       .setTitle("✅ Key Generated Successfully!")
       .setColor(0x00ff99)
       .addFields(
-        { name: "Product", value: productNames[productKey], inline: true },
+        { name: "Product", value: productNames[productKey] || productKey, inline: true },
         { name: "Key", value: "```" + key + "```" },
         { name: "Duration", value: formatDurasi(seconds), inline: true },
         { name: "Expires", value: expireText, inline: true },
@@ -1322,6 +1364,7 @@ async function handleSlash(interaction) {
     return interaction.editReply({ embeds: [embed] });
   }
 
+  // ── EXTENDKEY ──────────────────────────────────────────────────────────
   if (commandName === "extendkey") {
     if (!isAdmin(member) && !isAdminByRole(interaction))
       return interaction.reply({ content: "No permission.", flags: 64 });
@@ -1340,7 +1383,6 @@ async function handleSlash(interaction) {
 
     if (entry.expires === 0) {
       entry.duration += addSeconds * 1000;
-      entry.expires = Date.now() + entry.duration;
     } else {
       const now = Date.now();
       const currentExpiry = entry.expires;
@@ -1354,13 +1396,14 @@ async function handleSlash(interaction) {
       .addFields(
         { name: "Key", value: `\`${key}\`` },
         { name: "Added Time", value: formatDurasi(addSeconds), inline: true },
-        { name: "New Expiry", value: new Date(entry.expires).toLocaleString("id-ID") }
+        { name: "Current Expiry", value: entry.expires === 0 ? "Not yet bound" : new Date(entry.expires).toLocaleString("id-ID") }
       )
       .setTimestamp();
 
     return interaction.reply({ embeds: [embed], flags: 64 });
   }
 
+  // ── CHECKKEY ───────────────────────────────────────────────────────────
   if (commandName === "checkkey") {
     if (!isAdmin(member) && !isAdminByRole(interaction))
       return interaction.reply({ content: "No permission.", flags: 64 });
@@ -1376,60 +1419,43 @@ async function handleSlash(interaction) {
     const isExpired = !isUnbound && !isPermanent && data.expires !== 0 && now > data.expires;
     const isActive = !isUnbound && !isPermanent && data.expires !== 0 && now <= data.expires;
 
-    let statusText, expiryDisplay, color, statusEmoji;
+    let statusText, expiryDisplay, color;
     if (isPermanent) {
-      statusText = "Permanent";
+      statusText = "🟢 Permanent";
       expiryDisplay = "Never";
-      color = COLOR_GREEN;
-      statusEmoji = "💎";
+      color = COLOR_MAIN;
     } else if (isUnbound) {
-      statusText = "Unbound (Timer Not Started)";
-      expiryDisplay = `Starts on first use\nDuration: ${formatDurasi(data.duration / 1000)}`;
+      statusText = "🟡 Unbound (timer not started)";
+      expiryDisplay = `Starts when first used\nDuration: ${formatDurasi(data.duration / 1000)}`;
       color = COLOR_YELLOW;
-      statusEmoji = "🔄";
     } else if (isExpired) {
-      statusText = "EXPIRED";
+      statusText = "🔴 Expired";
       expiryDisplay = new Date(data.expires).toLocaleString("id-ID");
       color = COLOR_RED;
-      statusEmoji = "❌";
     } else {
-      statusText = "Active";
+      statusText = "🟢 Active";
       expiryDisplay = new Date(data.expires).toLocaleString("id-ID");
-      color = COLOR_GREEN;
-      statusEmoji = "✅";
+      color = COLOR_MAIN;
     }
-
-    const productNames = {
-      killaura: "Kill Aura",
-      combat: "Combat (Silent Aim)",
-      autofarm: "Auto Farm",
-      fps: "FPS",
-      multifarm: "MultiFarm",
-      external: "Roblox External"
-    };
 
     const embed = new EmbedBuilder()
       .setColor(color)
-      .setTitle(`🔑 Key Details - ${statusEmoji} ${statusText}`)
+      .setTitle("🔑 Key Details")
       .addFields(
-        { name: "Key", value: `\`${data.key}\``, inline: false },
-        { name: "Product", value: productNames[data.product] || data.product || "Unknown", inline: true },
-        { name: "Type", value: data.trial ? "🔰 Trial" : "💎 Paid", inline: true },
+        { name: "Key", value: `\`${data.key}\`` },
+        { name: "Product", value: data.product || "Unknown", inline: true },
         { name: "Created", value: new Date(data.created).toLocaleString("id-ID"), inline: true },
         { name: "Expires", value: expiryDisplay, inline: true },
-        { name: "Status", value: `${statusEmoji} ${statusText}`, inline: true },
+        { name: "Status", value: statusText, inline: true },
         { name: "HWID", value: data.hwid || "Not bound", inline: true },
-        { name: "Usage Count", value: `${data.usageCount || 0} times`, inline: true }
+        { name: "Type", value: data.trial ? "🔰 Trial" : "💎 Paid", inline: true }
       )
       .setTimestamp();
-
-    if (isExpired) {
-      embed.setDescription("⚠️ **This key has expired and can no longer be used.**");
-    }
 
     return interaction.reply({ embeds: [embed], flags: 64 });
   }
 
+  // ── REVOKEKEY ──────────────────────────────────────────────────────────
   if (commandName === "revokekey") {
     if (!isAdmin(member) && !isAdminByRole(interaction))
       return interaction.reply({ content: "No permission.", flags: 64 });
@@ -1438,7 +1464,6 @@ async function handleSlash(interaction) {
     const paidIndex = keys.findIndex(k => k.key === key);
     if (paidIndex !== -1) {
       keys.splice(paidIndex, 1);
-      if (keyUsage[key]) delete keyUsage[key];
       saveAll();
       return interaction.reply({ content: "✅ Key revoked.", flags: 64 });
     }
@@ -1452,6 +1477,7 @@ async function handleSlash(interaction) {
     return interaction.reply({ content: "❌ Key not found.", flags: 64 });
   }
 
+  // ── RESETHWID ──────────────────────────────────────────────────────────
   if (commandName === "resethwid") {
     if (!isAdmin(member) && !isAdminByRole(interaction))
       return interaction.reply({ content: "No permission.", flags: 64 });
@@ -1473,156 +1499,67 @@ async function handleSlash(interaction) {
     return interaction.reply({ content: "❌ Key not found.", flags: 64 });
   }
 
-  // ── PROFESSIONAL KEYLIST - ONLY SHOWS ACTIVE KEYS ────────────────────
+  // ── KEYLIST ────────────────────────────────────────────────────────────
   if (commandName === "keylist") {
     if (!isAdmin(member) && !isAdminByRole(interaction))
       return interaction.reply({ content: "No permission.", flags: 64 });
 
     refreshKeys();
     
-    const filterType = options.getString("type") || "active";
-    const now = Date.now();
+    const filterType = options.getString("type") || "paid";
+    let allKeys = [];
     
-    // Get all keys (paid + trial)
-    const paidKeys = [...keys];
-    const trialKeys = [...global.trialKeys];
-    
-    // Filter out expired keys from the list (expired keys are removed from storage)
-    // But also filter out any that might have expired but not yet cleaned up
-    const allKeys = [...paidKeys, ...trialKeys].filter(k => {
-      // If it has an expiry and it's past due, it's expired
-      if (k.expires > 0 && now > k.expires) return false;
-      return true;
-    });
-    
-    let filteredKeys = [];
-    let filterLabel = "Active Keys";
-    
-    if (filterType === "all") {
-      filteredKeys = allKeys;
-      filterLabel = "All Keys";
-    } else if (filterType === "active") {
-      filteredKeys = allKeys.filter(k => {
-        if (k.duration === 0) return true; // Permanent
-        if (k.expires === 0) return false; // Unbound not started
-        return now <= k.expires;
-      });
-      filterLabel = "Active Keys";
-    } else if (filterType === "paid") {
-      filteredKeys = allKeys.filter(k => !k.trial);
-      filterLabel = "Paid Keys";
+    if (filterType === "paid") {
+      allKeys = [...keys];
     } else if (filterType === "trial") {
-      filteredKeys = allKeys.filter(k => k.trial);
-      filterLabel = "Trial Keys";
-    } else {
-      filteredKeys = allKeys;
-      filterLabel = "All Keys";
+      allKeys = [...global.trialKeys];
     }
     
-    // Sort by created date (newest first)
-    filteredKeys.sort((a, b) => (b.created || 0) - (a.created || 0));
-    
-    if (filteredKeys.length === 0) {
-      return interaction.reply({ 
-        content: `📭 No **${filterLabel}** found in the database.`,
-        flags: 64 
-      });
-    }
+    if (allKeys.length === 0) return interaction.reply({ content: `📭 No ${filterType} keys in database.`, flags: 64 });
 
-    const itemsPerPage = 8;
+    const itemsPerPage = 10;
     const pages = [];
-    for (let i = 0; i < filteredKeys.length; i += itemsPerPage) {
-      pages.push(filteredKeys.slice(i, i + itemsPerPage));
+    for (let i = 0; i < allKeys.length; i += itemsPerPage) {
+      pages.push(allKeys.slice(i, i + itemsPerPage));
     }
 
     let currentPage = 0;
 
-    const generateKeyListEmbed = (page) => {
+    const generateEmbed = (page) => {
+      const now = Date.now();
       const keyList = pages[page];
-      const totalKeys = filteredKeys.length;
-      const totalPages = pages.length;
-      
-      // Count stats
-      const activeCount = filteredKeys.filter(k => {
-        if (k.duration === 0) return true;
-        if (k.expires === 0) return false;
-        return now <= k.expires;
-      }).length;
-      
-      const unboundCount = filteredKeys.filter(k => k.expires === 0 && k.duration > 0).length;
-      const permanentCount = filteredKeys.filter(k => k.duration === 0).length;
-      const paidCount = filteredKeys.filter(k => !k.trial).length;
-      const trialCount = filteredKeys.filter(k => k.trial).length;
-      
-      const productEmojis = {
-        killaura: "⚔️",
-        combat: "🎯",
-        autofarm: "🌾",
-        fps: "⚡",
-        multifarm: "🌿",
-        external: "🌐"
-      };
-      
-      const productNames = {
-        killaura: "Kill Aura",
-        combat: "Combat",
-        autofarm: "Auto Farm",
-        fps: "FPS",
-        multifarm: "MultiFarm",
-        external: "External"
-      };
-
+      const typeLabel = filterType === "trial" ? "Trial" : "Paid";
       const embed = new EmbedBuilder()
         .setColor(COLOR_MAIN)
-        .setTitle(`🔑 ${filterLabel}`)
-        .setDescription(`Showing keys **${page * itemsPerPage + 1} - ${Math.min((page + 1) * itemsPerPage, totalKeys)}** of **${totalKeys}** total keys`)
-        .addFields(
-          { name: "📊 Stats", value: `🟢 Active: ${activeCount}\n🟡 Unbound: ${unboundCount}\n💎 Permanent: ${permanentCount}\n💎 Paid: ${paidCount}\n🔰 Trial: ${trialCount}`, inline: true },
-          { name: "📋 Page", value: `${page + 1}/${totalPages}`, inline: true },
-          { name: "🔍 Filter", value: filterLabel, inline: true }
-        )
-        .setFooter({ text: "Keys are sorted by creation date (newest first) • Expired keys are auto-removed" })
-        .setTimestamp();
+        .setTitle(`🔑 ${typeLabel} Key List (Page ${page + 1}/${pages.length})`)
+        .setFooter({ text: `${allKeys.length} total ${filterType} keys` });
 
-      // Add each key as a field
       keyList.forEach(data => {
         const isUnbound = data.expires === 0 && data.duration > 0;
         const isPermanent = data.duration === 0;
+        const isExpired = !isUnbound && !isPermanent && data.expires !== 0 && now > data.expires;
         const isActive = !isUnbound && !isPermanent && data.expires !== 0 && now <= data.expires;
 
-        let statusIcon, statusText, expText, colorDot;
+        let statusIcon, expText;
         if (isPermanent) {
-          statusIcon = "💎";
-          statusText = "Permanent";
-          expText = "Never";
-          colorDot = "🟣";
+          statusIcon = "🟢";
+          expText = "∞";
         } else if (isUnbound) {
-          statusIcon = "🔄";
-          statusText = "Unbound";
-          expText = `${formatDurasi(data.duration / 1000)} (not started)`;
-          colorDot = "🟡";
-        } else if (isActive) {
-          statusIcon = "✅";
-          statusText = "Active";
+          statusIcon = "🟡";
+          expText = `Unbound (${formatDurasi(data.duration / 1000)})`;
+        } else if (isExpired) {
+          statusIcon = "🔴";
           expText = new Date(data.expires).toLocaleString("id-ID");
-          colorDot = "🟢";
         } else {
-          statusIcon = "❌";
-          statusText = "Expired";
-          expText = "Expired";
-          colorDot = "🔴";
+          statusIcon = "🟢";
+          expText = new Date(data.expires).toLocaleString("id-ID");
         }
 
-        const productEmoji = productEmojis[data.product] || "📦";
-        const productName = productNames[data.product] || data.product || "Unknown";
         const ownerText = data.userId ? `<@${data.userId}>` : "None";
-        const hwidText = data.hwid ? `\`${data.hwid.substring(0, 12)}...\`` : "Not bound";
-        const usageText = data.usageCount || 0;
-        const typeText = data.trial ? "🔰 Trial" : "💎 Paid";
 
         embed.addFields({
-          name: `${colorDot} \`${data.key}\``,
-          value: `${productEmoji} **${productName}** | ${typeText}\n${statusIcon} **Status:** ${statusText}\n⏰ **Expires:** ${expText}\n👤 **Owner:** ${ownerText}\n🔐 **HWID:** ${hwidText}\n📊 **Uses:** ${usageText}`,
+          name: `${statusIcon} ${data.key}`,
+          value: `**Expires:** ${expText}\n**HWID:** ${data.hwid || "None"}\n**Product:** ${data.product || "N/A"}\n**Owner:** ${ownerText}\n**Type:** ${data.trial ? "🔰 Trial" : "💎 Paid"}`,
           inline: false
         });
       });
@@ -1631,12 +1568,12 @@ async function handleSlash(interaction) {
     };
 
     const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(`keylist_prev_${filterType}`).setLabel("◀ Previous").setStyle(ButtonStyle.Secondary).setDisabled(true),
-      new ButtonBuilder().setCustomId(`keylist_next_${filterType}`).setLabel("Next ▶").setStyle(ButtonStyle.Secondary).setDisabled(pages.length <= 1)
+      new ButtonBuilder().setCustomId(`keylist_prev_${filterType}`).setLabel("◀").setStyle(ButtonStyle.Secondary).setDisabled(true),
+      new ButtonBuilder().setCustomId(`keylist_next_${filterType}`).setLabel("▶").setStyle(ButtonStyle.Secondary).setDisabled(pages.length <= 1)
     );
 
     const message = await interaction.reply({
-      embeds: [generateKeyListEmbed(0)],
+      embeds: [generateEmbed(0)],
       components: [row],
       flags: 64,
       fetchReply: true
@@ -1644,7 +1581,7 @@ async function handleSlash(interaction) {
 
     if (pages.length <= 1) return;
 
-    const collector = message.createMessageComponentCollector({ time: 120000 });
+    const collector = message.createMessageComponentCollector({ time: 60000 });
 
     collector.on("collect", async (btnInteraction) => {
       if (btnInteraction.user.id !== interaction.user.id) {
@@ -1658,14 +1595,11 @@ async function handleSlash(interaction) {
       }
 
       const newRow = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`keylist_prev_${filterType}`).setLabel("◀ Previous").setStyle(ButtonStyle.Secondary).setDisabled(currentPage === 0),
-        new ButtonBuilder().setCustomId(`keylist_next_${filterType}`).setLabel("Next ▶").setStyle(ButtonStyle.Secondary).setDisabled(currentPage === pages.length - 1)
+        new ButtonBuilder().setCustomId(`keylist_prev_${filterType}`).setLabel("◀").setStyle(ButtonStyle.Secondary).setDisabled(currentPage === 0),
+        new ButtonBuilder().setCustomId(`keylist_next_${filterType}`).setLabel("▶").setStyle(ButtonStyle.Secondary).setDisabled(currentPage === pages.length - 1)
       );
 
-      await btnInteraction.update({ 
-        embeds: [generateKeyListEmbed(currentPage)], 
-        components: [newRow] 
-      });
+      await btnInteraction.update({ embeds: [generateEmbed(currentPage)], components: [newRow] });
     });
 
     collector.on("end", async () => {
@@ -1677,6 +1611,7 @@ async function handleSlash(interaction) {
     return;
   }
 
+  // ── CHECKMYKEY ──────────────────────────────────────────────────────────
   if (commandName === "checkmykey") {
     const key = options.getString("key");
     const userId = interaction.user.id;
@@ -1710,60 +1645,43 @@ async function handleSlash(interaction) {
     const isExpired = !isUnbound && !isPermanent && data.expires !== 0 && now > data.expires;
     const isActive = !isUnbound && !isPermanent && data.expires !== 0 && now <= data.expires;
 
-    let statusText, expiryDisplay, color, statusEmoji;
+    let statusText, expiryDisplay, color;
     if (isPermanent) {
-      statusText = "Permanent";
+      statusText = "🟢 Permanent";
       expiryDisplay = "Never";
-      color = COLOR_GREEN;
-      statusEmoji = "💎";
+      color = COLOR_MAIN;
     } else if (isUnbound) {
-      statusText = "Unbound (Timer Not Started)";
-      expiryDisplay = `Starts on first use\nDuration: ${formatDurasi(data.duration / 1000)}`;
+      statusText = "🟡 Unbound (timer not started)";
+      expiryDisplay = `Starts when first used\nDuration: ${formatDurasi(data.duration / 1000)}`;
       color = COLOR_YELLOW;
-      statusEmoji = "🔄";
     } else if (isExpired) {
-      statusText = "EXPIRED";
+      statusText = "🔴 Expired";
       expiryDisplay = new Date(data.expires).toLocaleString("id-ID");
       color = COLOR_RED;
-      statusEmoji = "❌";
     } else {
-      statusText = "Active";
+      statusText = "🟢 Active";
       expiryDisplay = new Date(data.expires).toLocaleString("id-ID");
-      color = COLOR_GREEN;
-      statusEmoji = "✅";
+      color = COLOR_MAIN;
     }
-
-    const productNames = {
-      killaura: "Kill Aura",
-      combat: "Combat (Silent Aim)",
-      autofarm: "Auto Farm",
-      fps: "FPS",
-      multifarm: "MultiFarm",
-      external: "Roblox External"
-    };
 
     const embed = new EmbedBuilder()
       .setColor(color)
-      .setTitle(`🔑 Key Details - ${statusEmoji} ${statusText}`)
+      .setTitle("🔑 Key Details")
       .addFields(
-        { name: "Key", value: `\`${data.key}\``, inline: false },
-        { name: "Product", value: productNames[data.product] || data.product || "Unknown", inline: true },
-        { name: "Type", value: data.trial ? "🔰 Trial" : "💎 Paid", inline: true },
+        { name: "Key", value: `\`${data.key}\`` },
+        { name: "Product", value: data.product || "Unknown", inline: true },
         { name: "Created", value: new Date(data.created).toLocaleString("id-ID"), inline: true },
         { name: "Expires", value: expiryDisplay, inline: true },
-        { name: "Status", value: `${statusEmoji} ${statusText}`, inline: true },
+        { name: "Status", value: statusText, inline: true },
         { name: "HWID", value: data.hwid || "Not bound", inline: true },
-        { name: "Usage Count", value: `${data.usageCount || 0} times`, inline: true }
+        { name: "Type", value: data.trial ? "🔰 Trial" : "💎 Paid", inline: true }
       )
       .setTimestamp();
-
-    if (isExpired) {
-      embed.setDescription("⚠️ **This key has expired and can no longer be used.**");
-    }
 
     return interaction.reply({ embeds: [embed], flags: 64 });
   }
 
+  // ── SETUPTRIALS ──────────────────────────────────────────────────────
   if (commandName === "setuptrials") {
     if (!isAdmin(member)) return safeReply(interaction, { content: "No permission." });
 
@@ -1775,7 +1693,7 @@ async function handleSlash(interaction) {
     const expireSeconds = parseDuration(expireStr);
     const expireAt = Date.now() + expireSeconds * 1000;
 
-    const productNames = { killaura: "Kill Aura", combat: "Combat (Silent Aim)", autofarm: "Auto Farm", fps: "FPS", multifarm: "MultiFarm" };
+    const productNames = { killaura: "Kill Aura", multifarm: "Multi Farm", combat: "Combat (Silent Aim)", autofarm: "Auto Farm", fps: "FPS" };
 
     const embed = new EmbedBuilder()
       .setColor(COLOR_MAIN)
@@ -1825,13 +1743,34 @@ async function handleSlash(interaction) {
   }
 }
 
-// =====================================================
-// BUTTON HANDLER
-// =====================================================
+/* =====================================================
+   BUTTON HANDLER
+===================================================== */
 
 async function handleButton(interaction) {
   const { customId, guild, user, member, channel } = interaction;
 
+  // ── HWID Reset Button ──────────────────────────────────────────────────
+  if (customId === "hwid_reset_all") {
+    return interaction.showModal(
+      new ModalBuilder()
+        .setCustomId("modal_hwid_reset_all")
+        .setTitle("Reset HWID")
+        .addComponents(
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId("hwid_key_input")
+              .setLabel("Enter your key")
+              .setStyle(TextInputStyle.Short)
+              .setRequired(true)
+              .setMaxLength(50)
+              .setPlaceholder("e.g., KA-XXXX-XXXX-XXXX-XXXX")
+          )
+        )
+    );
+  }
+
+  // ── Apply Discount Button ─────────────────────────────────────────────
   if (customId.startsWith("apply_discount:")) {
     const ticketId = customId.split(":")[1];
     return interaction.showModal(
@@ -1863,7 +1802,7 @@ async function handleButton(interaction) {
     if (alreadyClaimed) return interaction.reply({ content: "❌ You have already claimed a trial key before.", flags: 64 });
 
     const key = createKey(trial.product, trial.durationMs, userId, true);
-    const productNames = { killaura: "Kill Aura", combat: "Combat (Silent Aim)", autofarm: "Auto Farm", fps: "FPS", multifarm: "MultiFarm" };
+    const productNames = { killaura: "Kill Aura", multifarm: "Multi Farm", combat: "Combat (Silent Aim)", autofarm: "Auto Farm", fps: "FPS" };
     const durationText = formatDurasi(trial.durationMs / 1000);
     
     const redeemEmbed = new EmbedBuilder()
@@ -2032,6 +1971,7 @@ async function handleButton(interaction) {
     saveAll();
     trackMessage(ticketId, "SYSTEM", `[APPROVED] Payment approved by ${user.tag}`);
 
+    // ── Give buyer role ──────────────────────────────────────────────────
     try {
       const targetMember = await guild.members.fetch(data.userId).catch(() => null);
       if (targetMember) {
@@ -2047,15 +1987,15 @@ async function handleButton(interaction) {
 
     const targetCh = guild.channels.cache.get(ticketId);
     if (targetCh) {
-      let approveEmbed;
       const productKey = getProductKey(data.product);
-      if (["killaura", "combat", "autofarm", "fps", "multifarm"].includes(productKey)) {
+      let approveEmbed;
+      if (requiresKey(productKey)) {
         const seconds = parseDuration(data.duration);
         const durationMs = seconds ? seconds * 1000 : 0;
         const key = createKey(productKey, durationMs, data.userId);
-        const loaderUrl = SCRIPT_LOADERS[productKey];
+        const loaderUrl = SCRIPT_LOADERS[productKey] || "https://example.com/script";
         const scriptReady = `loadstring(game:HttpGet("${loaderUrl}"))()`;
-        const expireText = seconds ? `Starts when first used` : "Lifetime";
+        const expireText = seconds ? `Starts when first used` : `Lifetime`;
 
         approveEmbed = new EmbedBuilder()
           .setColor(COLOR_GREEN)
@@ -2074,6 +2014,12 @@ async function handleButton(interaction) {
           .setColor(COLOR_GREEN)
           .setTitle("✅ Payment Approved")
           .setDescription(`Your **${data.product}** order has been verified!`)
+          .addFields(
+            { name: "Product", value: data.product, inline: true },
+            { name: "Variant", value: data.variant || "N/A", inline: true },
+            { name: "Price", value: moneyIDR(data.price), inline: true }
+          )
+          .setFooter({ text: "Thank you for your purchase!" })
           .setTimestamp();
       }
 
@@ -2141,13 +2087,14 @@ async function handleButton(interaction) {
   }
 }
 
-// =====================================================
-// MODAL HANDLER
-// =====================================================
+/* =====================================================
+   MODAL HANDLER
+===================================================== */
 
 async function handleModal(interaction) {
   const { customId, guild, user } = interaction;
 
+  // ── Discount Modal ──────────────────────────────────────────────────────
   if (customId.startsWith("modal_discount:")) {
     const [, ticketId] = customId.split(":");
     const code = interaction.fields.getTextInputValue("discount_code").toUpperCase();
@@ -2182,6 +2129,7 @@ async function handleModal(interaction) {
       
       await ch.send({ embeds: [embed] });
       
+      // Update the payment embed with new price
       const messages = await ch.messages.fetch({ limit: 10 });
       for (const msg of messages.values()) {
         if (msg.embeds.length > 0 && msg.embeds[0].data?.title?.includes("Order #")) {
@@ -2203,13 +2151,45 @@ async function handleModal(interaction) {
     });
   }
 
+  // ── HWID Reset Modal ───────────────────────────────────────────────────
+  if (customId === "modal_hwid_reset_all") {
+    const key = interaction.fields.getTextInputValue("hwid_key_input").trim();
+    
+    const paidData = keys.find(k => k.key === key);
+    if (paidData) {
+      if (paidData.userId !== user.id) {
+        return interaction.reply({ content: "❌ This key does not belong to you.", flags: 64 });
+      }
+      paidData.hwid = null;
+      saveAll();
+      return interaction.reply({ 
+        content: "✅ HWID reset successfully! Your paid key can now be bound to a new device.", 
+        flags: 64 
+      });
+    }
+
+    const trialData = global.trialKeys.find(k => k.key === key);
+    if (trialData) {
+      if (trialData.userId !== user.id) {
+        return interaction.reply({ content: "❌ This key does not belong to you.", flags: 64 });
+      }
+      trialData.hwid = null;
+      return interaction.reply({ 
+        content: "✅ HWID reset successfully! Your trial key can now be bound to a new device.", 
+        flags: 64 
+      });
+    }
+
+    return interaction.reply({ content: "❌ Key not found.", flags: 64 });
+  }
+
   if (customId === "modal_trial_loadstring") {
     const key = interaction.fields.getTextInputValue("key_input").trim();
     const data = keys.find(k => k.key === key) || global.trialKeys.find(k => k.key === key);
     if (!data) return interaction.reply({ content: "❌ Key not found.", flags: 64 });
     if (data.userId !== user.id) return interaction.reply({ content: "❌ This key does not belong to you.", flags: 64 });
 
-    const loaderUrl = SCRIPT_LOADERS[data.product] || "https://vss.pandauth.com/virtual/file/027fc82a484946ef";
+    const loaderUrl = SCRIPT_LOADERS[data.product] || "https://example.com/script";
     const scriptLoadOnly = `loadstring(game:HttpGet("${loaderUrl}"))()`;
     return interaction.reply({ content: `Your loadstring:\n\`\`\`lua\n${scriptLoadOnly}\n\`\`\``, flags: 64 });
   }
@@ -2279,9 +2259,9 @@ async function handleModal(interaction) {
   }
 }
 
-// =====================================================
-// SELECT MENU HANDLER
-// =====================================================
+/* =====================================================
+   SELECT MENU HANDLER
+===================================================== */
 
 async function resetDropdown(interaction) {
   try {
@@ -2306,7 +2286,22 @@ function buildDurationMenu(ticketId, productKey) {
     .setCustomId(`choose_duration:${ticketId}`)
     .setPlaceholder("Select duration");
 
-  for (const [dur, price] of Object.entries(PRICES[productKey])) {
+  // If product is southbronx, show currency amounts
+  if (productKey === "southbronx") {
+    const currencyKeys = ["100k", "200k", "300k", "400k", "500k", "600k", "700k", "800k", "900k", "1m"];
+    currencyKeys.forEach(k => {
+      if (PRICES.southbronx[k]) {
+        menu.addOptions({
+          label: k === "1m" ? "1.00m" : k,
+          value: k,
+          description: formatPriceIDRUSD(PRICES.southbronx[k])
+        });
+      }
+    });
+    return menu;
+  }
+
+  for (const [dur, price] of Object.entries(PRICES[productKey] || {})) {
     menu.addOptions({
       label: durationLabel(dur),
       value: dur,
@@ -2369,7 +2364,8 @@ async function handleSelect(interaction) {
         .setPlaceholder("📂 Select category...")
         .addOptions([
           { label: "Script", description: "Choose script type", emoji: "📜", value: "script" },
-          { label: "External", description: "External cheat", emoji: "🎮", value: "external" }
+          { label: "External", description: "External cheat", emoji: "🎮", value: "external" },
+          { label: "Game Currency", description: "South Bronx Cash", emoji: "💰", value: "currency" }
         ]);
 
       await ch.send({
@@ -2387,6 +2383,7 @@ async function handleSelect(interaction) {
       return resetDropdown(interaction);
     }
 
+    // Support tickets (unchanged)
     const openCount = orders.filter(o => o.userId === user.id && ["payment", "waiting", "approved"].includes(o.status)).length;
     if (openCount >= CONFIG.MAX_OPEN_TICKETS_PER_USER) {
       await interaction.reply({ content: `❌ You already have ${CONFIG.MAX_OPEN_TICKETS_PER_USER} open tickets.`, flags: 64 });
@@ -2455,6 +2452,22 @@ async function handleSelect(interaction) {
 
     const category = interaction.values[0];
 
+    if (category === "currency") {
+      data.product = "South Bronx Cash";
+      saveAll();
+      const durMenu = buildDurationMenu(ticketId, "southbronx");
+      await interaction.update({
+        embeds: [
+          new EmbedBuilder()
+            .setColor(COLOR_MAIN)
+            .setTitle("💰 South Bronx Cash")
+            .setDescription("Select the amount of South Bronx Cash you want to purchase.")
+        ],
+        components: [new ActionRowBuilder().addComponents(durMenu)]
+      });
+      return;
+    }
+
     if (category === "external") {
       data.product = "Roblox External";
       saveAll();
@@ -2482,10 +2495,10 @@ async function handleSelect(interaction) {
         .setPlaceholder("Select script type...")
         .addOptions([
           { label: "Kill Aura",           value: "killaura", description: "Aimbot / Kill aura" },
+          { label: "Multi Farm",          value: "multifarm", description: "Multi Farm script" },
           { label: "Combat (Silent Aim)", value: "combat",   description: "Silent Aim included" },
           { label: "Auto Farm",           value: "autofarm", description: "Auto farming features" },
-          { label: "FPS",                 value: "fps",      description: "FPS Booster" },
-          { label: "MultiFarm",           value: "multifarm", description: "Multi-farming features" }
+          { label: "FPS",                 value: "fps",      description: "FPS Booster" }
         ]);
 
       await interaction.update({
@@ -2509,7 +2522,7 @@ async function handleSelect(interaction) {
     if (!data || data.userId !== user.id) return safeReply(interaction, { content: "Not your order." });
 
     const subValue = interaction.values[0];
-    const names = { killaura: "Kill Aura", combat: "Combat (Silent Aim)", autofarm: "Auto Farm", fps: "FPS", multifarm: "MultiFarm" };
+    const names = { killaura: "Kill Aura", multifarm: "Multi Farm", combat: "Combat (Silent Aim)", autofarm: "Auto Farm", fps: "FPS" };
     data.product = names[subValue] || subValue;
     saveAll();
 
@@ -2536,7 +2549,7 @@ async function handleSelect(interaction) {
     const productKey = getProductKey(data.product);
     if (!productKey) return safeReply(interaction, { content: "Unknown product." });
     const price = PRICES[productKey]?.[dur];
-    if (!price) return safeReply(interaction, { content: "Invalid duration." });
+    if (!price) return safeReply(interaction, { content: "Invalid duration/amount." });
 
     data.duration = dur;
     data.variant = durationLabel(dur);
@@ -2547,6 +2560,10 @@ async function handleSelect(interaction) {
 
     trackMessage(ticketId, user.tag, `[DURATION SELECTED] ${data.product} – ${durationLabel(dur)} at ${moneyIDR(price)} (${getUSDApprox(price)})`);
 
+    const ch = guild.channels.cache.get(ticketId);
+    if (!ch) return safeReply(interaction, { content: "Ticket channel not found." });
+
+    // ── Show discount code input ──────────────────────────────────────────
     const discountEmbed = new EmbedBuilder()
       .setColor(COLOR_MAIN)
       .setTitle("🎫 Got a Discount Code?")
@@ -2555,9 +2572,6 @@ async function handleSelect(interaction) {
     const discountRow = new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId(`apply_discount:${ticketId}`).setLabel("Apply Discount Code").setStyle(ButtonStyle.Primary).setEmoji("🏷️")
     );
-
-    const ch = guild.channels.cache.get(ticketId);
-    if (!ch) return safeReply(interaction, { content: "Ticket channel not found." });
 
     await ch.send({
       content: `<@${user.id}>`,
@@ -2602,7 +2616,7 @@ async function handleSelect(interaction) {
           .setDescription(`**1.** Select payment method below\n**2.** Pay using instructions above\n**3.** Click **I've Paid ✅**`)
           .addFields(
             { name: "Product", value: data.product, inline: true },
-            { name: "Duration", value: durationLabel(dur), inline: true },
+            { name: "Variant", value: data.variant || "N/A", inline: true },
             { name: "Price", value: `${moneyIDR(data.price)}${data.discountAmount > 0 ? ` (Saved ${moneyIDR(data.discountAmount)})` : ''}\n${getUSDApprox(data.price)}`, inline: true },
             { name: "Status", value: statusBadge("payment"), inline: true }
           )
